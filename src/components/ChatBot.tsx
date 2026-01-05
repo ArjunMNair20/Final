@@ -93,10 +93,8 @@ export default function ChatBot({ onClose, isModal = false }: ChatBotProps) {
     }
   };
 
-  const ChatContainer = isModal ? 'div' : 'div';
-
   return (
-    <ChatContainer
+    <div
       className={isModal ? 'fixed inset-0 z-50 flex items-center justify-center p-4' : 'h-full flex flex-col'}
     >
       {isModal && (
@@ -234,7 +232,7 @@ export default function ChatBot({ onClose, isModal = false }: ChatBotProps) {
           </div>
         </div>
       </div>
-    </ChatContainer>
+    </div>
   );
 }
 

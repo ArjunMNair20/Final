@@ -88,7 +88,7 @@ export default function Signup() {
           } 
         });
       } else {
-        navigate('/');
+        navigate('/dashboard');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to create account. Please try again.');

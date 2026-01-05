@@ -1,7 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
+import helmet from 'helmet';
 import { pipeline } from '@xenova/transformers';
 import fetch from 'node-fetch'; // For web search / Node < 18
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -9,9 +13,66 @@ const PORT = process.env.PORT || 3001;
 // Toggle live web search via env
 const WEB_SEARCH_ENABLED = process.env.WEB_SEARCH_ENABLED === 'true';
 
-// Middleware
+// Middleware - security & performance
+app.use(helmet());
+app.use(compression({ threshold: 1024 })); // compress responses over 1kb
 app.use(cors());
 app.use(express.json());
+
+// Serve precompressed static assets from the Vite `dist` folder when available
+const DIST_DIR = path.join(process.cwd(), 'dist');
+
+// If a precompressed asset exists and client accepts it, serve it with the right headers
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+
+  // Normalize path and default to index.html
+  let urlPath = req.path;
+  if (urlPath === '/') urlPath = '/index.html';
+
+  const filePath = path.join(DIST_DIR, urlPath);
+
+  if (!fs.existsSync(filePath)) return next();
+
+  const accept = (req.headers['accept-encoding'] || '');
+  const isImmutable = /\.[a-f0-9]{8}\./.test(path.basename(filePath)) || filePath.includes(`${path.sep}assets${path.sep}`);
+
+  if (accept.includes('br') && fs.existsSync(filePath + '.br')) {
+    res.set('Content-Encoding', 'br');
+    res.set('Vary', 'Accept-Encoding');
+    if (isImmutable) res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    else if (filePath.endsWith('index.html')) res.set('Cache-Control', 'no-cache');
+    else res.set('Cache-Control', 'public, max-age=3600');
+    res.type(path.extname(filePath).slice(1) || 'application/octet-stream');
+    return res.sendFile(filePath + '.br');
+  }
+
+  if (accept.includes('gzip') && fs.existsSync(filePath + '.gz')) {
+    res.set('Content-Encoding', 'gzip');
+    res.set('Vary', 'Accept-Encoding');
+    if (isImmutable) res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    else if (filePath.endsWith('index.html')) res.set('Cache-Control', 'no-cache');
+    else res.set('Cache-Control', 'public, max-age=3600');
+    res.type(path.extname(filePath).slice(1) || 'application/octet-stream');
+    return res.sendFile(filePath + '.gz');
+  }
+
+  next();
+});
+
+// Fallback static serving with cache control set for hashed assets
+app.use(express.static(DIST_DIR, {
+  setHeaders(res, filePath) {
+    const isImmutable = /\.[a-f0-9]{8}\./.test(path.basename(filePath)) || filePath.includes(`${path.sep}assets${path.sep}`);
+    if (isImmutable) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (filePath.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    }
+  }
+}));
 
 // Initialize the model (using a small, efficient model for local use)
 let generator = null;
@@ -198,8 +259,9 @@ app.post('/api/chat', async (req, res) => {
 
     if (generator) {
       try {
-        // 1) Optional: fetch live web search results to ground the answer
-        const searchResults = await webSearch(message, 5);
+        // 1) Optional: fetch live web search results to ground the answer (disabled for speed)
+        // Only enable if WEB_SEARCH_ENABLED is true
+        const searchResults = WEB_SEARCH_ENABLED ? await webSearch(message, 3) : [];
 
         let searchContext = '';
         if (searchResults.length > 0) {
@@ -237,12 +299,13 @@ app.post('/api/chat', async (req, res) => {
 
         const prompt = buildPrompt(messages);
 
-        // Generate response
+        // Generate response - optimized for speed
         const result = await generator(prompt, {
-          max_new_tokens: 512,
+          max_new_tokens: 256, // Reduced for faster responses
           temperature: 0.7,
           top_p: 0.9,
           do_sample: true,
+          return_full_text: false, // Don't return the prompt, only new tokens
         });
 
         response = extractAssistantResponse(
@@ -342,38 +405,564 @@ app.post('/api/chat/clear', (req, res) => {
   res.json({ success: true, message: 'Chat history cleared' });
 });
 
+// News cache to reduce API calls
+let newsCache = {
+  articles: [],
+  timestamp: 0,
+  CACHE_DURATION: 3 * 60 * 1000 // 3 minutes cache
+};
+
+// Function to fetch real cybersecurity news from multiple live online sources
+async function fetchRealCybersecurityNews() {
+  const articles = [];
+  const FETCH_TIMEOUT = 6000; // 6 second timeout per fetch
+  
+  // Helper function with timeout
+  const fetchWithTimeout = (url, options = {}) => {
+    return Promise.race([
+      fetch(url, options),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Fetch timeout')), FETCH_TIMEOUT)
+      )
+    ]);
+  };
+
+  // Source 1: Reddit r/cybersecurity - Real-time community discussion
+  try {
+    console.log('Fetching from Reddit...');
+    const redditResponse = await fetchWithTimeout('https://www.reddit.com/r/cybersecurity/new.json?limit=20', {
+      headers: {
+        'User-Agent': 'CybersecArena/1.0 (+http://localhost:3001)'
+      }
+    });
+    
+    if (redditResponse.ok) {
+      const redditData = await redditResponse.json();
+      const posts = redditData.data?.children || [];
+      
+      posts.forEach((post) => {
+        const data = post.data;
+        if (data && data.title) {
+        articles.push({
+          id: `reddit-${data.id}`,
+          title: data.title,
+            description: data.selftext ? data.selftext.substring(0, 300) : 'Community discussion on cybersecurity',
+          source: 'Reddit r/cybersecurity',
+          author: `u/${data.author}`,
+          url: `https://reddit.com${data.permalink}`,
+          publishedAt: new Date(data.created_utc * 1000).toISOString(),
+          category: 'Community Discussion',
+          tags: ['Security', 'Community', 'Discussion']
+        });
+        }
+      });
+      console.log(`✓ Fetched ${posts.length} articles from Reddit`);
+    }
+  } catch (error) {
+    console.log('✗ Reddit fetch failed:', error.message);
+  }
+
+  // Source 2: Reddit r/netsec - Network security
+  try {
+    console.log('Fetching from Reddit r/netsec...');
+    const redditResponse = await fetchWithTimeout('https://www.reddit.com/r/netsec/new.json?limit=15', {
+      headers: {
+        'User-Agent': 'CybersecArena/1.0 (+http://localhost:3001)'
+      }
+    });
+    
+    if (redditResponse.ok) {
+      const redditData = await redditResponse.json();
+      const posts = redditData.data?.children || [];
+      
+      posts.forEach((post) => {
+        const data = post.data;
+        if (data && data.title) {
+          articles.push({
+            id: `reddit-netsec-${data.id}`,
+            title: data.title,
+            description: data.selftext ? data.selftext.substring(0, 300) : 'Network security discussion',
+            source: 'Reddit r/netsec',
+            author: `u/${data.author}`,
+            url: `https://reddit.com${data.permalink}`,
+            publishedAt: new Date(data.created_utc * 1000).toISOString(),
+            category: 'Network Security',
+            tags: ['Network Security', 'Community', 'Discussion']
+          });
+        }
+      });
+      console.log(`✓ Fetched ${posts.length} articles from Reddit r/netsec`);
+    }
+  } catch (error) {
+    console.log('✗ Reddit r/netsec fetch failed:', error.message);
+  }
+
+  // Source 3: HackerNews - Tech & security news
+  try {
+    console.log('Fetching from HackerNews...');
+    const topStoriesResponse = await fetchWithTimeout('https://hacker-news.firebaseio.com/v0/topstories.json');
+    
+    if (topStoriesResponse.ok) {
+      const topStoryIds = await topStoriesResponse.json();
+      const storyIds = topStoryIds.slice(0, 15); // Get top 15
+      
+      const stories = await Promise.all(
+        storyIds.map(id =>
+          fetchWithTimeout(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)
+            .then(res => res.json())
+            .catch(() => null)
+        )
+      );
+      
+      stories.forEach((story) => {
+        if (story && story.title && story.url) {
+          // Filter for security-related stories
+          const titleLower = story.title.toLowerCase();
+          if (titleLower.includes('security') || 
+              titleLower.includes('cyber') ||
+              titleLower.includes('hack') ||
+              titleLower.includes('vulnerability') ||
+              titleLower.includes('breach') ||
+              titleLower.includes('malware') ||
+              titleLower.includes('ransomware') ||
+              titleLower.includes('phishing')) {
+            articles.push({
+              id: `hn-${story.id}`,
+              title: story.title,
+              description: `${story.score || 0} upvotes | ${story.descendants || 0} comments`,
+              source: 'Hacker News',
+              author: story.by || 'Anonymous',
+              url: story.url,
+              publishedAt: new Date(story.time * 1000).toISOString(),
+              category: 'Tech News',
+              tags: ['HackerNews', 'Security', 'News']
+            });
+          }
+        }
+      });
+      console.log(`✓ Fetched security-related articles from HackerNews`);
+    }
+  } catch (error) {
+    console.log('✗ HackerNews fetch failed:', error.message);
+  }
+
+  // Source 4: SecurityWeek RSS - Professional cybersecurity news
+  try {
+    console.log('Fetching from SecurityWeek RSS...');
+    const rssResponse = await fetchWithTimeout(
+      'https://www.securityweek.com/feed/',
+      {
+        headers: {
+          'User-Agent': 'CybersecArena/1.0'
+        }
+      }
+    );
+    
+    if (rssResponse.ok) {
+      const rssText = await rssResponse.text();
+      const itemMatches = rssText.match(/<item>[\s\S]*?<\/item>/gi);
+      if (itemMatches) {
+        itemMatches.slice(0, 15).forEach((item, index) => {
+          const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || item.match(/<title>(.*?)<\/title>/i);
+          const linkMatch = item.match(/<link>(.*?)<\/link>/i);
+          const descMatch = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/i) || item.match(/<description>(.*?)<\/description>/i);
+          const pubMatch = item.match(/<pubDate>(.*?)<\/pubDate>/i);
+          
+          if (titleMatch && linkMatch) {
+        articles.push({
+              id: `securityweek-${Date.now()}-${index}`,
+              title: titleMatch[1].replace(/<[^>]*>/g, '').trim(),
+              description: descMatch ? descMatch[1].replace(/<[^>]*>/g, '').substring(0, 300).trim() : 'Cybersecurity news from SecurityWeek',
+              source: 'SecurityWeek',
+              author: 'SecurityWeek',
+              url: linkMatch[1].trim(),
+              publishedAt: pubMatch ? new Date(pubMatch[1]).toISOString() : new Date().toISOString(),
+              category: 'Security News',
+              tags: ['Security', 'News', 'Cybersecurity']
+        });
+          }
+      });
+        console.log(`✓ Fetched articles from SecurityWeek RSS`);
+      }
+    }
+  } catch (error) {
+    console.log('✗ SecurityWeek RSS fetch failed:', error.message);
+  }
+
+  // Source 5: Dark Reading RSS - Cybersecurity news and analysis
+  try {
+    console.log('Fetching from Dark Reading RSS...');
+    const rssResponse = await fetchWithTimeout(
+      'https://www.darkreading.com/rss.xml',
+      {
+        headers: {
+          'User-Agent': 'CybersecArena/1.0'
+        }
+      }
+    );
+    
+    if (rssResponse.ok) {
+      const rssText = await rssResponse.text();
+      const itemMatches = rssText.match(/<item>[\s\S]*?<\/item>/gi);
+      if (itemMatches) {
+        itemMatches.slice(0, 15).forEach((item, index) => {
+          const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || item.match(/<title>(.*?)<\/title>/i);
+          const linkMatch = item.match(/<link>(.*?)<\/link>/i);
+          const descMatch = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/i) || item.match(/<description>(.*?)<\/description>/i);
+          const pubMatch = item.match(/<pubDate>(.*?)<\/pubDate>/i);
+          
+          if (titleMatch && linkMatch) {
+            articles.push({
+              id: `darkreading-${Date.now()}-${index}`,
+              title: titleMatch[1].replace(/<[^>]*>/g, '').trim(),
+              description: descMatch ? descMatch[1].replace(/<[^>]*>/g, '').substring(0, 300).trim() : 'Cybersecurity news from Dark Reading',
+              source: 'Dark Reading',
+              author: 'Dark Reading',
+              url: linkMatch[1].trim(),
+              publishedAt: pubMatch ? new Date(pubMatch[1]).toISOString() : new Date().toISOString(),
+              category: 'Security News',
+              tags: ['Security', 'News', 'Threats']
+            });
+          }
+        });
+        console.log(`✓ Fetched articles from Dark Reading RSS`);
+      }
+    }
+  } catch (error) {
+    console.log('✗ Dark Reading RSS fetch failed:', error.message);
+  }
+
+  // Source 6: CVE Database - Recent critical vulnerabilities (real security issues)
+  try {
+    console.log('Fetching recent critical CVEs...');
+    const cveResponse = await fetchWithTimeout(
+      'https://cve.circl.lu/api/last/15',
+      {
+        headers: {
+          'User-Agent': 'CybersecArena/1.0'
+        }
+      }
+    );
+    
+    if (cveResponse.ok) {
+      const cveData = await cveResponse.json();
+      if (Array.isArray(cveData)) {
+        cveData.slice(0, 8).forEach((cve) => {
+          if (cve && cve.id && cve.summary) {
+            // Only include CVEs with actual summaries (real vulnerabilities)
+            articles.push({
+              id: `cve-${cve.id}`,
+              title: `${cve.id}: ${cve.summary.substring(0, 100)}`,
+              description: cve.summary || `Critical security vulnerability: ${cve.id}`,
+              source: 'CVE Database',
+              author: 'CVE.org',
+              url: `https://cve.mitre.org/cgi-bin/cvename.cgi?name=${cve.id}`,
+              publishedAt: cve.Published || new Date().toISOString(),
+              category: 'Vulnerabilities',
+              tags: ['CVE', 'Vulnerability', 'Security', 'Patch', 'Critical']
+            });
+          }
+        });
+        console.log(`✓ Fetched ${cveData.length} recent CVEs`);
+      }
+    }
+  } catch (error) {
+    console.log('✗ CVE fetch failed:', error.message);
+  }
+
+  // Source 7: BleepingComputer RSS (Security News)
+  try {
+    console.log('Fetching from BleepingComputer RSS...');
+    const rssResponse = await fetchWithTimeout(
+      'https://www.bleepingcomputer.com/feed/',
+      {
+        headers: {
+          'User-Agent': 'CybersecArena/1.0'
+        }
+      }
+    );
+    
+    if (rssResponse.ok) {
+      const rssText = await rssResponse.text();
+      const itemMatches = rssText.match(/<item>[\s\S]*?<\/item>/gi);
+      if (itemMatches) {
+        itemMatches.slice(0, 15).forEach((item, index) => {
+          const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || item.match(/<title>(.*?)<\/title>/i);
+          const linkMatch = item.match(/<link>(.*?)<\/link>/i);
+          const descMatch = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/i) || item.match(/<description>(.*?)<\/description>/i);
+          const pubMatch = item.match(/<pubDate>(.*?)<\/pubDate>/i);
+          
+          if (titleMatch && linkMatch) {
+            articles.push({
+              id: `bleep-${Date.now()}-${index}`,
+              title: titleMatch[1].replace(/<[^>]*>/g, '').trim(),
+              description: descMatch ? descMatch[1].replace(/<[^>]*>/g, '').substring(0, 300).trim() : 'Security news from BleepingComputer',
+              source: 'BleepingComputer',
+              author: 'BleepingComputer',
+              url: linkMatch[1].trim(),
+              publishedAt: pubMatch ? new Date(pubMatch[1]).toISOString() : new Date().toISOString(),
+              category: 'Security News',
+              tags: ['Security', 'News', 'Threats']
+            });
+          }
+        });
+        console.log(`✓ Fetched articles from BleepingComputer RSS`);
+      }
+    }
+  } catch (error) {
+    console.log('✗ BleepingComputer RSS fetch failed:', error.message);
+  }
+
+  // Source 8: The Hacker News RSS
+  try {
+    console.log('Fetching from The Hacker News RSS...');
+    const rssResponse = await fetchWithTimeout(
+      'https://feeds.feedburner.com/TheHackersNews',
+      {
+        headers: {
+          'User-Agent': 'CybersecArena/1.0'
+        }
+      }
+    );
+    
+    if (rssResponse.ok) {
+      const rssText = await rssResponse.text();
+      const itemMatches = rssText.match(/<item>[\s\S]*?<\/item>/gi);
+      if (itemMatches) {
+        itemMatches.slice(0, 15).forEach((item, index) => {
+          const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || item.match(/<title>(.*?)<\/title>/i);
+          const linkMatch = item.match(/<link>(.*?)<\/link>/i);
+          const descMatch = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/i) || item.match(/<description>(.*?)<\/description>/i);
+          const pubMatch = item.match(/<pubDate>(.*?)<\/pubDate>/i);
+          
+          if (titleMatch && linkMatch) {
+            articles.push({
+              id: `thn-${Date.now()}-${index}`,
+              title: titleMatch[1].replace(/<[^>]*>/g, '').trim(),
+              description: descMatch ? descMatch[1].replace(/<[^>]*>/g, '').substring(0, 300).trim() : 'Security news from The Hacker News',
+              source: 'The Hacker News',
+              author: 'The Hacker News',
+              url: linkMatch[1].trim(),
+              publishedAt: pubMatch ? new Date(pubMatch[1]).toISOString() : new Date().toISOString(),
+              category: 'Security News',
+              tags: ['Security', 'News', 'Hacking']
+            });
+          }
+        });
+        console.log(`✓ Fetched articles from The Hacker News RSS`);
+  }
+    }
+  } catch (error) {
+    console.log('✗ The Hacker News RSS fetch failed:', error.message);
+  }
+
+  // Source 9: Krebs on Security RSS - In-depth security journalism
+  try {
+    console.log('Fetching from Krebs on Security RSS...');
+    const rssResponse = await fetchWithTimeout(
+      'https://krebsonsecurity.com/feed/',
+      {
+        headers: {
+          'User-Agent': 'CybersecArena/1.0'
+        }
+      }
+    );
+    
+    if (rssResponse.ok) {
+      const rssText = await rssResponse.text();
+      const itemMatches = rssText.match(/<item>[\s\S]*?<\/item>/gi);
+      if (itemMatches) {
+        itemMatches.slice(0, 10).forEach((item, index) => {
+          const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || item.match(/<title>(.*?)<\/title>/i);
+          const linkMatch = item.match(/<link>(.*?)<\/link>/i);
+          const descMatch = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/i) || item.match(/<description>(.*?)<\/description>/i);
+          const pubMatch = item.match(/<pubDate>(.*?)<\/pubDate>/i);
+          
+          if (titleMatch && linkMatch) {
+            articles.push({
+              id: `krebs-${Date.now()}-${index}`,
+              title: titleMatch[1].replace(/<[^>]*>/g, '').trim(),
+              description: descMatch ? descMatch[1].replace(/<[^>]*>/g, '').substring(0, 300).trim() : 'In-depth cybersecurity journalism from Krebs on Security',
+              source: 'Krebs on Security',
+              author: 'Brian Krebs',
+              url: linkMatch[1].trim(),
+              publishedAt: pubMatch ? new Date(pubMatch[1]).toISOString() : new Date().toISOString(),
+              category: 'Security Journalism',
+              tags: ['Security', 'Journalism', 'Investigative', 'Threats']
+            });
+          }
+        });
+        console.log(`✓ Fetched articles from Krebs on Security RSS`);
+      }
+    }
+  } catch (error) {
+    console.log('✗ Krebs on Security RSS fetch failed:', error.message);
+  }
+
+  // Filter and clean articles - only keep real news about cybersecurity issues
+  const filteredArticles = articles.filter(article => {
+    // Must have valid title and URL
+    if (!article.title || !article.url || article.url === '#') {
+      return false;
+    }
+    
+    // Filter out non-news content (projects, tools, etc.)
+    const titleLower = article.title.toLowerCase();
+    const descLower = (article.description || '').toLowerCase();
+    
+    // Exclude if it's about tools, projects, or non-news content
+    const excludeKeywords = [
+      'github', 'repository', 'release version', 'new tool', 'open source project',
+      'download', 'install', 'plugin', 'extension', 'library update'
+    ];
+    
+    const isExcluded = excludeKeywords.some(keyword => 
+      titleLower.includes(keyword) || descLower.includes(keyword)
+    );
+    
+    // Must be about real security issues, news, threats, or vulnerabilities
+    const includeKeywords = [
+      'security', 'cyber', 'hack', 'breach', 'attack', 'vulnerability', 'malware',
+      'ransomware', 'phishing', 'threat', 'exploit', 'data leak', 'incident',
+      'cve', 'patch', 'update', 'alert', 'advisory', 'warning', 'risk'
+    ];
+    
+    const isIncluded = includeKeywords.some(keyword => 
+      titleLower.includes(keyword) || descLower.includes(keyword)
+    );
+    
+    return !isExcluded && isIncluded;
+  });
+
+  // Remove duplicates based on title similarity
+  const uniqueArticles = [];
+  const seenTitles = new Set();
+  
+  filteredArticles.forEach(article => {
+    const titleKey = article.title.toLowerCase().substring(0, 60);
+    if (!seenTitles.has(titleKey)) {
+      seenTitles.add(titleKey);
+      uniqueArticles.push(article);
+    }
+  });
+
+  // Sort by date (newest first)
+  uniqueArticles.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+  
+  console.log(`✓ Total real-world cybersecurity news articles: ${uniqueArticles.length} (after filtering and deduplication)`);
+  return uniqueArticles;
+}
+
 // News endpoints
 // Fetch cybersecurity news from RSS feeds and news APIs
 app.get('/api/news', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100); // Max 100 articles
     const articles = await fetchCybersecurityNews(limit);
-    res.json({ articles, totalResults: articles.length });
+    
+    // Set cache headers
+    res.set('Cache-Control', 'public, max-age=180'); // 3 minutes cache
+    res.set('X-News-Source', 'live');
+    res.set('X-Articles-Count', articles.length.toString());
+    
+    res.json({ 
+      articles, 
+      totalResults: articles.length,
+      cached: (Date.now() - newsCache.timestamp) < newsCache.CACHE_DURATION,
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
     console.error('Error fetching news:', error);
-    res.status(500).json({ error: 'Failed to fetch news', articles: [] });
+    res.status(500).json({ 
+      error: 'Failed to fetch news', 
+      articles: [],
+      message: error.message 
+    });
   }
 });
 
 app.get('/api/news/search', async (req, res) => {
   try {
     const query = req.query.q || '';
-    const articles = await fetchCybersecurityNews(50);
-    // Simple search filter
-    const filtered = articles.filter(article => 
-      article.title.toLowerCase().includes(query.toLowerCase()) ||
-      article.description.toLowerCase().includes(query.toLowerCase())
-    );
-    res.json({ articles: filtered, totalResults: filtered.length });
+    if (!query.trim()) {
+      return res.status(400).json({ 
+        error: 'Search query is required', 
+        articles: [] 
+      });
+    }
+
+    // Fetch more articles for search (up to 100)
+    const articles = await fetchCybersecurityNews(100);
+    
+    // Enhanced search filter - search in title, description, tags, and source
+    const queryLower = query.toLowerCase();
+    const filtered = articles.filter(article => {
+      const titleMatch = article.title.toLowerCase().includes(queryLower);
+      const descMatch = article.description?.toLowerCase().includes(queryLower);
+      const tagMatch = article.tags?.some(tag => tag.toLowerCase().includes(queryLower));
+      const sourceMatch = article.source?.toLowerCase().includes(queryLower);
+      const categoryMatch = article.category?.toLowerCase().includes(queryLower);
+      
+      return titleMatch || descMatch || tagMatch || sourceMatch || categoryMatch;
+    });
+
+    // Sort by relevance (title matches first, then description)
+    filtered.sort((a, b) => {
+      const aTitleMatch = a.title.toLowerCase().includes(queryLower);
+      const bTitleMatch = b.title.toLowerCase().includes(queryLower);
+      if (aTitleMatch && !bTitleMatch) return -1;
+      if (!aTitleMatch && bTitleMatch) return 1;
+      return new Date(b.publishedAt) - new Date(a.publishedAt);
+    });
+
+    res.set('Cache-Control', 'public, max-age=60'); // 1 minute cache for search
+    res.json({ 
+      articles: filtered, 
+      totalResults: filtered.length,
+      query: query,
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
     console.error('Error searching news:', error);
-    res.status(500).json({ error: 'Failed to search news', articles: [] });
+    res.status(500).json({ 
+      error: 'Failed to search news', 
+      articles: [],
+      message: error.message 
+    });
   }
 });
 
-// Function to fetch cybersecurity news
+// Function to fetch cybersecurity news with caching
 async function fetchCybersecurityNews(limit = 20) {
-  // Curated cybersecurity news sources
+  // Check cache first
+  const now = Date.now();
+  if (newsCache.articles.length > 0 && (now - newsCache.timestamp) < newsCache.CACHE_DURATION) {
+    console.log(`Returning ${Math.min(newsCache.articles.length, limit)} cached news articles`);
+    return newsCache.articles.slice(0, limit);
+  }
+
+  // Always try to fetch real news from public sources first
+  try {
+    const realNews = await fetchRealCybersecurityNews();
+    if (realNews && realNews.length > 0) {
+      // Update cache
+      newsCache.articles = realNews;
+      newsCache.timestamp = now;
+      console.log(`✓ Cached ${realNews.length} live news articles`);
+      console.log(`Returning ${Math.min(realNews.length, limit)} live news articles`);
+      return realNews.slice(0, limit);
+    }
+  } catch (error) {
+    console.error('Error fetching real news:', error);
+    // If we have cached news, use it even if expired
+    if (newsCache.articles.length > 0) {
+      console.log(`⚠ Using expired cache due to fetch error`);
+      return newsCache.articles.slice(0, limit);
+    }
+  }
+
+  // Only use fallback if absolutely no live news was fetched and no cache available
+  console.log('⚠ No live news available, using minimal fallback');
   const newsSources = [
     {
       id: '1',
@@ -548,8 +1137,36 @@ async function fetchCybersecurityNews(limit = 20) {
     .slice(0, limit);
 }
 
+// News cache refresh endpoint (for manual refresh)
+app.post('/api/news/refresh', async (req, res) => {
+  try {
+    // Clear cache and force refresh
+    newsCache.articles = [];
+    newsCache.timestamp = 0;
+    
+    const limit = parseInt(req.query.limit) || 20;
+    const articles = await fetchCybersecurityNews(limit);
+    
+    res.json({ 
+      success: true,
+      articles, 
+      totalResults: articles.length,
+      message: 'News cache refreshed successfully'
+    });
+  } catch (error) {
+    console.error('Error refreshing news:', error);
+    res.status(500).json({ 
+      error: 'Failed to refresh news', 
+      message: error.message 
+    });
+  }
+});
+
 app.listen(PORT, () => {
-  console.log(`AI Chatbot server running on http://localhost:${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🚀 AI Chatbot server running on http://localhost:${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`📰 News API: http://localhost:${PORT}/api/news`);
+  console.log(`🔍 News Search: http://localhost:${PORT}/api/news/search?q=security`);
+  console.log(`🔄 News Refresh: http://localhost:${PORT}/api/news/refresh`);
 });
 

@@ -212,7 +212,8 @@ CREATE TRIGGER sync_username_to_leaderboard
 -- 6. HELPER VIEWS
 -- ============================================
 
--- View for leaderboard with user information
+-- View for leaderboard with user information and progress
+-- Only shows real users who have profiles in the system
 CREATE OR REPLACE VIEW leaderboard_view AS
 SELECT 
   ls.id,
@@ -227,9 +228,19 @@ SELECT
   ls.quiz_score,
   ls.firewall_score,
   ls.last_updated,
+  -- Progress data from user_progress table
+  COALESCE(array_length(up_progress.ctf_solved_ids, 1), 0) as ctf_solved_count,
+  COALESCE(array_length(up_progress.phish_solved_ids, 1), 0) as phish_solved_count,
+  COALESCE(array_length(up_progress.code_solved_ids, 1), 0) as code_solved_count,
+  COALESCE(up_progress.quiz_answered, 0) as quiz_answered,
+  COALESCE(up_progress.quiz_correct, 0) as quiz_correct,
+  COALESCE(up_progress.firewall_best_score, 0) as firewall_best_score,
+  up_progress.badges,
   ROW_NUMBER() OVER (ORDER BY ls.total_score DESC, ls.last_updated ASC) as rank
 FROM leaderboard_scores ls
-LEFT JOIN user_profiles up ON ls.user_id = up.id
+INNER JOIN user_profiles up ON ls.user_id = up.id
+LEFT JOIN user_progress up_progress ON ls.user_id = up_progress.user_id
+WHERE up.id IS NOT NULL AND up.username IS NOT NULL
 ORDER BY ls.total_score DESC, ls.last_updated ASC;
 
 -- Grant access to the view

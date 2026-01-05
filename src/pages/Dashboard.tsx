@@ -5,8 +5,7 @@ const cards = [
   { to: '/ctf', title: 'CTF Challenges', desc: 'Web, Crypto, Forensics, Reverse, Binary' },
   { to: '/phish-hunt', title: 'Phish Hunt', desc: 'Investigate emails and links' },
   { to: '/code-and-secure', title: 'Code & Secure', desc: 'Fix vulnerable code and learn secure patterns' },
-  { to: '/firewall-defender', title: 'Firewall Defender', desc: 'Tower defense with IDS/IPS strategy' },
-  { to: '/ai-quizbot', title: 'AI Cyber QuizBot', desc: 'Adaptive quiz with explanations' },
+  { to: '/ai-quizbot', title: 'Cyber Quiz Lab', desc: 'Timed quiz on passwords, web attacks, crypto, and more' },
 ];
 
 export default function Dashboard() {

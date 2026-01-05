@@ -1,20 +1,23 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { IProgressStorage } from './IProgressStorage';
 import { ProgressState, Difficulty } from '../../types/progress';
+import { getSupabase } from '../../lib/supabase';
 
 export class SupabaseStorageService implements IProgressStorage {
-  private supabase: SupabaseClient;
+  constructor() {}
 
-  constructor(supabaseUrl: string, supabaseKey: string) {
-    this.supabase = createClient(supabaseUrl, supabaseKey);
+  private async client() {
+    const s = await getSupabase();
+    if (!s) throw new Error('Supabase is not configured');
+    return s;
   }
 
   async load(): Promise<ProgressState | null> {
     try {
-      const { data: { user } } = await this.supabase.auth.getUser();
+      const supabase = await this.client();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
 
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('user_progress')
         .select(
           'ctf_solved_ids, phish_solved_ids, code_solved_ids, quiz_answered, quiz_correct, quiz_difficulty, firewall_best_score, badges',
@@ -45,7 +48,8 @@ export class SupabaseStorageService implements IProgressStorage {
 
   async save(state: ProgressState): Promise<void> {
     try {
-      const { data: { user } } = await this.supabase.auth.getUser();
+      const supabase = await this.client();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
       const progressData = {
@@ -60,7 +64,7 @@ export class SupabaseStorageService implements IProgressStorage {
         badges: state.badges,
       };
 
-      const { error } = await this.supabase
+      const { error } = await supabase
         .from('user_progress')
         .upsert(progressData, { onConflict: 'user_id' });
 
@@ -73,10 +77,11 @@ export class SupabaseStorageService implements IProgressStorage {
 
   async clear(): Promise<void> {
     try {
-      const { data: { user } } = await this.supabase.auth.getUser();
+      const supabase = await this.client();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { error } = await this.supabase
+      const { error } = await supabase
         .from('user_progress')
         .delete()
         .eq('user_id', user.id);

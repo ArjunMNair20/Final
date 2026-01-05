@@ -30,10 +30,18 @@ export default function Login() {
 
     try {
       await login({ email, password });
-      navigate('/');
+      // Navigate to dashboard after successful login
+      navigate('/dashboard', { replace: true });
     } catch (err: any) {
-      setError(err.message || 'Failed to login. Please try again.');
-    } finally {
+      console.error('Login error:', err);
+      const errorMessage = err.message || 'Failed to login. Please try again.';
+      setError(errorMessage);
+      
+      // Show helpful message for email confirmation
+      if (errorMessage.includes('Email not confirmed') || errorMessage.includes('confirm your email')) {
+        setResendEmail(email);
+      }
+      // Only set loading to false on error - on success, component will unmount during navigation
       setIsLoading(false);
     }
   };
@@ -161,7 +169,29 @@ export default function Login() {
           </div>
         </div>
 
-        {/* Demo Account Info */}
+        {/* Success Message */}
+        {confirmationMessage && (
+          <div className="mt-6 p-4 rounded-lg bg-green-500/10 border border-green-400/30 flex items-center gap-2 text-green-300">
+            <CheckCircle size={20} />
+            <span className="text-sm">{confirmationMessage}</span>
+          </div>
+        )}
+
+        {/* Email Confirmation Resend */}
+        {resendEmail && (
+          <div className="mt-6 p-4 rounded-lg bg-blue-500/10 border border-blue-400/30">
+            <p className="text-sm text-blue-300 mb-2">Email not confirmed. Need a new confirmation email?</p>
+            <button
+              onClick={handleResendConfirmation}
+              disabled={isResending}
+              className="w-full px-4 py-2 rounded-lg bg-blue-500/20 border border-blue-400/30 text-blue-300 hover:bg-blue-500/30 disabled:opacity-50 transition-colors text-sm"
+            >
+              {isResending ? 'Sending...' : 'Resend Confirmation Email'}
+            </button>
+          </div>
+        )}
+
+        {/* Info */}
         <div className="mt-6 p-4 rounded-lg bg-slate-800/30 border border-slate-700/50">
           <p className="text-xs text-slate-500 text-center">
             New to CyberSec Arena? Create an account to save your progress and compete on the leaderboard.

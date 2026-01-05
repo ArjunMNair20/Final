@@ -1,16 +1,17 @@
 import { User, LoginCredentials, SignupCredentials } from '../types/auth';
-import { supabase } from '../lib/supabase';
+import { getSupabase } from '../lib/supabase';
 
 class AuthService {
   // -------------------- Helpers --------------------
-  private ensureSupabase() {
-    if (!supabase) {
+  private async ensureSupabase() {
+    const s = await getSupabase();
+    if (!s) {
       throw new Error(
         'Supabase is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file',
       );
     }
 
-    return supabase;
+    return s;
   }
 
   private normalizeEmail(rawEmail: string): string {
@@ -45,7 +46,7 @@ class AuthService {
   async signup(credentials: SignupCredentials): Promise<{ user: User; needsConfirmation: boolean }> {
     this.validateSignupBasics(credentials);
 
-    const s = this.ensureSupabase();
+    const s = await this.ensureSupabase();
 
     const email = this.normalizeEmail(credentials.email);
     const username = credentials.username.trim();
@@ -138,7 +139,7 @@ class AuthService {
       throw new Error('Email and password are required');
     }
 
-    const s = this.ensureSupabase();
+    const s = await this.ensureSupabase();
     const normalizedEmail = this.normalizeEmail(email);
 
     const { data: authData, error: authError } = await s.auth.signInWithPassword({
@@ -172,13 +173,7 @@ class AuthService {
     if (profileError) {
       console.error('Failed to load user profile:', profileError);
       // Return basic user info from auth
-      return {
-        id: authData.user.id,
-        email: authData.user.email || normalizedEmail,
-        username: authData.user.user_metadata?.username || 'user',
-        name: authData.user.user_metadata?.name,
-        createdAt: authData.user.created_at || new Date().toISOString(),
-      };
+      return this.buildUserFromAuth(authData.user);
     }
 
     return {
@@ -191,7 +186,7 @@ class AuthService {
   }
 
   async logout(): Promise<void> {
-    const s = this.ensureSupabase();
+    const s = await this.ensureSupabase();
 
     const { error } = await s.auth.signOut();
     if (error) {
@@ -200,46 +195,63 @@ class AuthService {
   }
 
   async getCurrentUser(): Promise<User | null> {
-    const s = this.ensureSupabase();
+    const s = await this.ensureSupabase();
 
-    const {
-      data: { user: authUser },
-      error,
-    } = await s.auth.getUser();
+    // Use getSession first as it's faster and cached
+    const { data: { session }, error: sessionError } = await s.auth.getSession();
+    
+    if (sessionError || !session?.user) {
+      // Fallback to getUser if session is not available
+      const {
+        data: { user: authUser },
+        error,
+      } = await s.auth.getUser();
 
-    if (error || !authUser) {
-      return null;
+      if (error || !authUser) {
+        return null;
+      }
+
+      return this.buildUserFromAuth(authUser);
     }
 
-    // Get user profile
-    const { data: profile } = await s
-      .from('user_profiles')
-      .select('username, name, email')
-      .eq('id', authUser.id)
-      .single();
+    const authUser = session.user;
 
-    if (!profile) {
-      // Return basic user info from auth
-      return {
-        id: authUser.id,
-        email: authUser.email || '',
-        username: authUser.user_metadata?.username || 'user',
-        name: authUser.user_metadata?.name,
-        createdAt: authUser.created_at || new Date().toISOString(),
-      };
+    // Get user profile in parallel with session check
+    try {
+      const { data: profile } = await s
+        .from('user_profiles')
+        .select('username, name, email')
+        .eq('id', authUser.id)
+        .single();
+
+      if (profile) {
+        return {
+          id: authUser.id,
+          email: profile.email || authUser.email || '',
+          username: profile.username,
+          name: profile.name || undefined,
+          createdAt: authUser.created_at || new Date().toISOString(),
+        };
+      }
+    } catch (profileError) {
+      console.warn('Failed to load profile, using auth data:', profileError);
     }
 
+    return this.buildUserFromAuth(authUser);
+  }
+
+  private buildUserFromAuth(authUser: any): User {
     return {
       id: authUser.id,
-      email: profile.email || authUser.email || '',
-      username: profile.username,
-      name: profile.name || undefined,
+      email: authUser.email || '',
+      username: authUser.user_metadata?.username || 'user',
+      name: authUser.user_metadata?.name,
       createdAt: authUser.created_at || new Date().toISOString(),
     };
   }
 
   async isAuthenticated(): Promise<boolean> {
-    const s = this.ensureSupabase();
+    const s = await this.ensureSupabase();
 
     const {
       data: { session },
@@ -248,7 +260,7 @@ class AuthService {
   }
 
   async resendConfirmationEmail(email: string): Promise<void> {
-    const s = this.ensureSupabase();
+    const s = await this.ensureSupabase();
     const normalizedEmail = this.normalizeEmail(email);
 
     const { error } = await s.auth.resend({
@@ -265,7 +277,7 @@ class AuthService {
   }
 
   async confirmEmail(token: string, type: string): Promise<void> {
-    const s = this.ensureSupabase();
+    const s = await this.ensureSupabase();
 
     const { error } = await s.auth.verifyOtp({
       token_hash: token,

@@ -28,18 +28,41 @@ export default function Profile() {
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
+    // Load profile immediately (from cache)
     loadProfile();
-    loadSettings();
-    settingsService.initialize();
+    
+    // Load settings in parallel (non-blocking)
+    Promise.all([
+      loadSettings(),
+      settingsService.initialize()
+    ]).catch(() => {
+      // Silently handle errors
+    });
   }, []);
 
   const loadProfile = async () => {
+    // Load profile (returns cached data immediately)
     const loaded = await profileService.getProfile();
     setProfile(loaded);
     setNameValue(loaded.name);
     setUsernameValue(loaded.username);
     setBioValue(loaded.bio || '');
-    setAvatarPreview(loaded.avatar || profileService.generateAvatarSVG(loaded.name, loaded.username));
+    
+    // Generate avatar preview asynchronously to not block render
+    if (loaded.avatar) {
+      setAvatarPreview(loaded.avatar);
+    } else {
+      // Use requestIdleCallback for avatar generation
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          setAvatarPreview(profileService.generateAvatarSVG(loaded.name, loaded.username));
+        });
+      } else {
+        setTimeout(() => {
+          setAvatarPreview(profileService.generateAvatarSVG(loaded.name, loaded.username));
+        }, 0);
+      }
+    }
   };
 
   const loadSettings = async () => {

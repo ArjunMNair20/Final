@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { ExternalLink, Calendar, User, Tag, Search, RefreshCw, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ExternalLink, Calendar, User, Tag, Search, RefreshCw, AlertCircle, Clock } from 'lucide-react';
 import newsService, { NewsArticle } from '../services/newsService';
 
 export default function NewsFeed() {
@@ -8,10 +8,29 @@ export default function NewsFeed() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredArticles, setFilteredArticles] = useState<NewsArticle[]>([]);
+  const [lastRefreshTime, setLastRefreshTime] = useState<string>('');
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Auto-refresh effect - refreshes news every 3 minutes
   useEffect(() => {
-    loadNews();
-  }, []);
+    // Always fetch fresh news on component mount (force refresh)
+    loadNews(true);
+
+    // Set up auto-refresh interval if enabled
+    if (autoRefreshEnabled) {
+      refreshIntervalRef.current = setInterval(() => {
+        loadNews(true); // Force refresh on auto-refresh too
+      }, 3 * 60 * 1000); // 3 minutes (reduced from 5)
+    }
+
+    // Cleanup on unmount or when auto-refresh is disabled
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [autoRefreshEnabled]);
 
   useEffect(() => {
     if (searchQuery.trim()) {
@@ -27,16 +46,36 @@ export default function NewsFeed() {
     }
   }, [searchQuery, articles]);
 
-  const loadNews = async () => {
+  const loadNews = async (forceRefresh: boolean = false) => {
     setLoading(true);
     setError(null);
     try {
-      const news = await newsService.getCybersecurityNews(20);
+      // Always fetch fresh news from live sources
+      const news = await newsService.getCybersecurityNews(30, forceRefresh); // Increased limit and force refresh
       setArticles(news);
       setFilteredArticles(news);
-    } catch (err) {
-      setError('Failed to load news. Please try again later.');
-      console.error(err);
+      setLastRefreshTime(new Date().toLocaleTimeString('en-US', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        second: '2-digit'
+      }));
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Unknown error';
+      console.error('News loading error:', err);
+      
+      // Provide more helpful error messages
+      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
+        setError('Cannot fetch news. Please check your internet connection and try again.');
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('aborted')) {
+        setError('Request timed out. News sources may be slow. Please try refreshing.');
+      } else {
+        setError(`Failed to load news: ${errorMessage}. Please try again later.`);
+      }
+      
+      // If we have cached articles, show them even on error
+      if (articles.length === 0) {
+        console.log('No articles loaded, showing empty state');
+      }
     } finally {
       setLoading(false);
     }
@@ -63,15 +102,35 @@ export default function NewsFeed() {
         <div>
           <h1 className="text-3xl font-bold text-cyan-300 mb-2">Cybersecurity News Feed</h1>
           <p className="text-slate-400">Stay updated with the latest cybersecurity news, threats, and updates</p>
+          {lastRefreshTime && (
+            <div className="flex items-center gap-2 text-xs text-slate-500 mt-2">
+              <Clock size={14} />
+              <span>Last updated: {lastRefreshTime}</span>
+              {autoRefreshEnabled && <span className="text-cyan-400">(Auto-refreshing every 3 minutes)</span>}
+            </div>
+          )}
         </div>
-        <button
-          onClick={loadNews}
-          disabled={loading}
-          className="px-4 py-2 rounded-lg bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 hover:bg-cyan-500/30 disabled:opacity-50 transition-colors flex items-center gap-2"
-        >
-          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => loadNews(true)}
+            disabled={loading}
+            className="px-4 py-2 rounded-lg bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 hover:bg-cyan-500/30 disabled:opacity-50 transition-colors flex items-center gap-2"
+          >
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+            Refresh Now
+          </button>
+          <button
+            onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+            className={`px-4 py-2 rounded-lg border text-sm transition-colors flex items-center gap-2 ${
+              autoRefreshEnabled 
+                ? 'bg-green-500/20 border-green-400/30 text-green-300 hover:bg-green-500/30' 
+                : 'bg-slate-700/50 border-slate-600 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <RefreshCw size={16} />
+            {autoRefreshEnabled ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
+          </button>
+        </div>
       </div>
 
       {/* Search Bar */}
@@ -117,9 +176,26 @@ export default function NewsFeed() {
 
       {/* Loading State */}
       {loading && articles.length === 0 && (
-        <div className="flex items-center justify-center py-12">
-          <RefreshCw className="animate-spin text-cyan-400" size={32} />
-          <span className="ml-3 text-slate-400">Loading latest cybersecurity news...</span>
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01] animate-pulse"
+            >
+              <div className="space-y-3">
+                <div className="h-4 bg-slate-700 rounded w-3/4"></div>
+                <div className="h-4 bg-slate-700 rounded w-1/2"></div>
+                <div className="space-y-2">
+                  <div className="h-3 bg-slate-700 rounded w-full"></div>
+                  <div className="h-3 bg-slate-700 rounded w-5/6"></div>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <div className="h-3 bg-slate-700 rounded w-16"></div>
+                  <div className="h-3 bg-slate-700 rounded w-20"></div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

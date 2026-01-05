@@ -1,49 +1,82 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+import { lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicRoute from './components/PublicRoute';
-import Dashboard from './pages/Dashboard';
-import CTF from './pages/CTF';
-import PhishHunt from './pages/PhishHunt';
-import CodeAndSecure from './pages/CodeAndSecure';
-import FirewallDefender from './pages/FirewallDefender';
-import AICyberQuizBot from './pages/AICyberQuizBot';
-import ChatBot from './pages/ChatBot';
-import Leaderboard from './pages/Leaderboard';
-import NewsFeed from './pages/NewsFeed';
-import Profile from './pages/Profile';
-import Tutorials from './pages/Tutorials';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import NotFound from './pages/NotFound';
+
+// Lazy load pages for better performance
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const CTF = lazy(() => import('./pages/CTF'));
+const PhishHunt = lazy(() => import('./pages/PhishHunt'));
+const CodeAndSecure = lazy(() => import('./pages/CodeAndSecure'));
+const AICyberQuizBotLanding = lazy(() => import('./pages/AICyberQuizBotLanding'));
+const AICyberQuizBot = lazy(() => import('./pages/AICyberQuizBot'));
+const ChatBot = lazy(() => import('./pages/ChatBot'));
+const Leaderboard = lazy(() => import('./pages/Leaderboard'));
+const NewsFeed = lazy(() => import('./pages/NewsFeed'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Tutorials = lazy(() => import('./pages/Tutorials'));
+const Login = lazy(() => import('./pages/Login'));
+const Signup = lazy(() => import('./pages/Signup'));
+const NotFound = lazy(() => import('./pages/NotFound'));
+const ConfirmEmail = lazy(() => import('./pages/ConfirmEmail'));
+
+// Loading component
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center">
+    <div className="text-center">
+      <div className="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+      <p className="text-slate-400">Loading...</p>
+    </div>
+  </div>
+);
+
+// Root redirect component that checks authentication
+function RootRedirect() {
+  const { isAuthenticated, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return <PageLoader />;
+  }
+  
+  // Always redirect to login page on root
+  return <Navigate to="/login" replace />;
+}
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Routes>
-          {/* Public Routes */}
-          <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-          <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
-          
-          {/* Protected Routes */}
-          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route index element={<Dashboard />} />
-            <Route path="ctf" element={<CTF />} />
-            <Route path="phish-hunt" element={<PhishHunt />} />
-            <Route path="code-and-secure" element={<CodeAndSecure />} />
-            <Route path="firewall-defender" element={<FirewallDefender />} />
-            <Route path="ai-quizbot" element={<AICyberQuizBot />} />
-            <Route path="chatbot" element={<ChatBot />} />
-            <Route path="leaderboard" element={<Leaderboard />} />
-            <Route path="news" element={<NewsFeed />} />
-            <Route path="profile" element={<Profile />} />
-            <Route path="tutorials" element={<Tutorials />} />
-          </Route>
-          
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            {/* Root redirect to login */}
+            <Route path="/" element={<RootRedirect />} />
+            
+            {/* Public Routes - Authentication Pages */}
+            <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+            <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
+            <Route path="/confirm-email" element={<ConfirmEmail />} />
+            
+            {/* Protected Routes - Main Application */}
+            <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="ctf" element={<CTF />} />
+              <Route path="phish-hunt" element={<PhishHunt />} />
+              <Route path="code-and-secure" element={<CodeAndSecure />} />
+              <Route path="ai-quizbot" element={<AICyberQuizBotLanding />} />
+              <Route path="ai-quizbot/:difficulty" element={<AICyberQuizBot />} />
+              <Route path="chatbot" element={<ChatBot />} />
+              <Route path="leaderboard" element={<Leaderboard />} />
+              <Route path="news" element={<NewsFeed />} />
+              <Route path="profile" element={<Profile />} />
+              <Route path="tutorials" element={<Tutorials />} />
+            </Route>
+            
+            {/* Catch all - redirect to login if not authenticated, or 404 for unknown routes */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
       </BrowserRouter>
     </AuthProvider>
   );

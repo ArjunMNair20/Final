@@ -45,12 +45,27 @@ export function ProgressProvider({ children, storage }: ProgressProviderProps) {
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
+    // Defer loading progress to not block initial render
     const loadProgress = async () => {
-      const loaded = await storageService.load();
-      if (loaded) {
-        setState(loaded);
+      // Use requestIdleCallback for better performance
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(async () => {
+          const loaded = await storageService.load();
+          if (loaded) {
+            setState(loaded);
+          }
+          setIsLoaded(true);
+        }, { timeout: 1000 });
+      } else {
+        // Fallback to setTimeout
+        setTimeout(async () => {
+          const loaded = await storageService.load();
+          if (loaded) {
+            setState(loaded);
+          }
+          setIsLoaded(true);
+        }, 0);
       }
-      setIsLoaded(true);
     };
     loadProgress();
   }, [storageService]);

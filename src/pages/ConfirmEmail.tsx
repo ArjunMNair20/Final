@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Shield, CheckCircle, AlertCircle, Mail, Loader2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { getSupabase } from '../lib/supabase';
 
 export default function ConfirmEmail() {
   const [searchParams] = useSearchParams();
@@ -18,22 +18,26 @@ export default function ConfirmEmail() {
 
         if (!token) {
           // Check if user is already confirmed
-          const { data: { session } } = await supabase?.auth.getSession() || { data: { session: null } };
-          if (session) {
-            setStatus('success');
-            setMessage('Your email has been confirmed! Redirecting...');
-            setTimeout(() => navigate('/'), 2000);
-            return;
+          const s = await getSupabase();
+          if (s) {
+            const { data: { session } } = await s.auth.getSession();
+            if (session) {
+              setStatus('success');
+              setMessage('Your email has been confirmed! Redirecting to dashboard...');
+              setTimeout(() => navigate('/dashboard'), 2000);
+              return;
+            }
           }
           throw new Error('No confirmation token found');
         }
 
-        if (!supabase) {
+        const s = await getSupabase();
+        if (!s) {
           throw new Error('Supabase is not configured');
         }
 
         // Verify the email
-        const { error } = await supabase.auth.verifyOtp({
+        const { error } = await s.auth.verifyOtp({
           token_hash: token,
           type: type as any,
         });
@@ -42,9 +46,17 @@ export default function ConfirmEmail() {
           throw error;
         }
 
-        setStatus('success');
-        setMessage('Email confirmed successfully! Redirecting to login...');
-        setTimeout(() => navigate('/login'), 2000);
+        // Check if user is now signed in after verification
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          setStatus('success');
+          setMessage('Email confirmed successfully! Redirecting to dashboard...');
+          setTimeout(() => navigate('/dashboard'), 2000);
+        } else {
+          setStatus('success');
+          setMessage('Email confirmed successfully! Please log in.');
+          setTimeout(() => navigate('/login'), 2000);
+        }
       } catch (error: any) {
         console.error('Email confirmation error:', error);
         setStatus('error');

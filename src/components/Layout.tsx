@@ -1,10 +1,13 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo, useState, lazy, Suspense } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Shield, Trophy, Newspaper, User, Gamepad2, ShieldAlert, Brain, Code, Mail, Terminal, BookOpen, Sparkles, MessageSquare, LogOut } from 'lucide-react';
+import { Shield, Trophy, Newspaper, User, Gamepad2, Brain, Code, Mail, Terminal, BookOpen, Sparkles, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import AudioControl from './AudioControl';
-import Matrix from './Matrix';
-import AICoach from './AICoach';
+import FloatingChatBot from './FloatingChatBot';
+
+// Lazy load heavy components
+const Matrix = lazy(() => import('./Matrix'));
+const AICoach = lazy(() => import('./AICoach'));
 
 type NavItem = {
   to: string;
@@ -17,14 +20,25 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/ctf', label: 'CTF Challenges', icon: <Terminal size={18} /> },
   { to: '/phish-hunt', label: 'Phish Hunt', icon: <Mail size={18} /> },
   { to: '/code-and-secure', label: 'Code & Secure', icon: <Code size={18} /> },
-  { to: '/firewall-defender', label: 'Firewall Defender', icon: <ShieldAlert size={18} /> },
-  { to: '/ai-quizbot', label: 'AI Cyber QuizBot', icon: <Brain size={18} /> },
-  { to: '/chatbot', label: 'AI Chatbot', icon: <MessageSquare size={18} /> },
+  { to: '/ai-quizbot', label: 'Cyber Quiz Lab', icon: <Brain size={18} /> },
   { to: '/leaderboard', label: 'Leaderboard', icon: <Trophy size={18} /> },
   { to: '/news', label: 'News Feed', icon: <Newspaper size={18} /> },
   { to: '/tutorials', label: 'Tutorials', icon: <BookOpen size={18} /> },
   { to: '/profile', label: 'Profile', icon: <User size={18} /> },
 ];
+
+// Prefetch map: preloads route chunks on hover/focus to reduce perceived latency
+const PREFETCH_MAP: Record<string, () => Promise<any>> = {
+  '/': () => import('../pages/Dashboard'),
+  '/ctf': () => import('../pages/CTF'),
+  '/phish-hunt': () => import('../pages/PhishHunt'),
+  '/code-and-secure': () => import('../pages/CodeAndSecure'),
+  '/ai-quizbot': () => import('../pages/AICyberQuizBotLanding'),
+  '/leaderboard': () => import('../pages/Leaderboard'),
+  '/news': () => import('../pages/NewsFeed'),
+  '/profile': () => import('../pages/Profile'),
+  '/tutorials': () => import('../pages/Tutorials'),
+};
 
 function Layout() {
   const [coachOpen, setCoachOpen] = useState(false);
@@ -36,9 +50,14 @@ function Layout() {
   const handleLogout = async () => {
     try {
       await logout();
-      navigate('/login');
+      // Clear any cached data
+      localStorage.removeItem('cybersec_arena_profile_v1');
+      // Navigate to login page
+      navigate('/login', { replace: true });
     } catch (error) {
       console.error('Failed to logout:', error);
+      // Even if logout fails, try to navigate to login
+      navigate('/login', { replace: true });
     }
   };
 
@@ -58,8 +77,8 @@ function Layout() {
             <NavLink
               key={n.to}
               to={n.to}
-              end={n.to === '/'}
-              className={({ isActive }) =>
+              end={n.to === '/'}              onMouseEnter={() => PREFETCH_MAP[n.to]?.()}
+              onFocus={() => PREFETCH_MAP[n.to]?.()}              className={({ isActive }) =>
                 `flex items-center gap-2 px-3 py-2 rounded-md transition-colors ${
                   isActive
                     ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-400/30'
@@ -121,11 +140,18 @@ function Layout() {
           </div>
         </header>
         <div className="relative p-6">
-          <Matrix />
+          <Suspense fallback={null}>
+            <Matrix />
+          </Suspense>
           <div className="absolute inset-0 -z-10 opacity-[0.08]" style={{ background: 'radial-gradient(circle at 20% 10%, #08f7fe 0%, transparent 25%), radial-gradient(circle at 80% 30%, #f608f7 0%, transparent 25%)' }} />
           <Outlet />
         </div>
-        {coachOpen && <AICoach onClose={() => setCoachOpen(false)} />}
+        {coachOpen && (
+          <Suspense fallback={null}>
+            <AICoach onClose={() => setCoachOpen(false)} />
+          </Suspense>
+        )}
+        <FloatingChatBot />
       </main>
     </div>
   );
