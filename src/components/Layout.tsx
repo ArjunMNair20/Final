@@ -1,9 +1,10 @@
-import { memo, useMemo, useState, lazy, Suspense } from 'react';
+import { memo, useMemo, useState, lazy, Suspense, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Shield, Trophy, Newspaper, User, Gamepad2, Brain, Code, Mail, Terminal, BookOpen, Sparkles, LogOut } from 'lucide-react';
+import { Trophy, Newspaper, User, Gamepad2, Brain, Code, Mail, Terminal, BookOpen, Sparkles, LogOut, Radar, Lock, Fingerprint } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import AudioControl from './AudioControl';
-import FloatingChatBot from './FloatingChatBot';
+import { useProgress, useSyncProgressToLeaderboard } from '../lib/progress';
+import { useLogoutWithSync } from '../hooks/useLogoutWithSync';
+import { AchievementQueue } from './AchievementNotification';
 
 // Lazy load heavy components
 const Matrix = lazy(() => import('./Matrix'));
@@ -15,15 +16,25 @@ type NavItem = {
   icon: JSX.Element;
 };
 
-const NAV_ITEMS: NavItem[] = [
+// Grouped nav arrays so we can render visual separators between sections
+const GAMES_NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: <Gamepad2 size={18} /> },
   { to: '/ctf', label: 'CTF Challenges', icon: <Terminal size={18} /> },
   { to: '/phish-hunt', label: 'Phish Hunt', icon: <Mail size={18} /> },
   { to: '/code-and-secure', label: 'Code & Secure', icon: <Code size={18} /> },
   { to: '/ai-quizbot', label: 'Cyber Quiz Lab', icon: <Brain size={18} /> },
-  { to: '/leaderboard', label: 'Leaderboard', icon: <Trophy size={18} /> },
+  
+];
+
+const TOOLS_NAV: NavItem[] = [
+  { to: '/threat-radar', label: 'ThreatRadar', icon: <Radar size={18} /> },
+  { to: '/steganography', label: 'StegoStudio', icon: <Lock size={18} /> },
+];
+
+const INFO_NAV: NavItem[] = [
   { to: '/news', label: 'News Feed', icon: <Newspaper size={18} /> },
   { to: '/tutorials', label: 'Tutorials', icon: <BookOpen size={18} /> },
+  { to: '/leaderboard', label: 'Leaderboard', icon: <Trophy size={18} /> },
   { to: '/profile', label: 'Profile', icon: <User size={18} /> },
 ];
 
@@ -32,9 +43,11 @@ const PREFETCH_MAP: Record<string, () => Promise<any>> = {
   '/': () => import('../pages/Dashboard'),
   '/ctf': () => import('../pages/CTF'),
   '/phish-hunt': () => import('../pages/PhishHunt'),
+  '/threat-radar': () => import('../pages/CyberHealthAnalyzer'),
   '/code-and-secure': () => import('../pages/CodeAndSecure'),
   '/ai-quizbot': () => import('../pages/AICyberQuizBotLanding'),
   '/leaderboard': () => import('../pages/Leaderboard'),
+  '/steganography': () => import('../pages/Steganography'),
   '/news': () => import('../pages/NewsFeed'),
   '/profile': () => import('../pages/Profile'),
   '/tutorials': () => import('../pages/Tutorials'),
@@ -42,14 +55,50 @@ const PREFETCH_MAP: Record<string, () => Promise<any>> = {
 
 function Layout() {
   const [coachOpen, setCoachOpen] = useState(false);
-  const { user, logout } = useAuth();
+  const [achievementQueue, setAchievementQueue] = useState<string[]>([]);
+  const { user } = useAuth();
+  const { state, newBadges } = useProgress();
+  const { logout: logoutWithSync } = useLogoutWithSync();
+  const syncToLeaderboard = useSyncProgressToLeaderboard();
   const navigate = useNavigate();
 
-  const navItems = useMemo(() => NAV_ITEMS, []);
+  // Handle new badges by adding them to the queue
+  useEffect(() => {
+    if (newBadges && newBadges.length > 0) {
+      setAchievementQueue(prev => [...prev, ...newBadges]);
+    }
+  }, [newBadges]);
+
+  // Sync progress to leaderboard in real-time
+  useEffect(() => {
+    if (!user) return;
+
+    let syncTimeout: NodeJS.Timeout;
+    
+    const sync = () => {
+      clearTimeout(syncTimeout);
+      syncTimeout = setTimeout(() => {
+        syncToLeaderboard(user);
+      }, 500);
+    };
+
+    sync();
+
+    return () => clearTimeout(syncTimeout);
+  }, [user, state, syncToLeaderboard]);
+
+  const NAV_GROUPS = useMemo(
+    () => [
+      { title: 'Games', items: GAMES_NAV },
+      { title: 'Tools', items: TOOLS_NAV },
+      { title: 'Info', items: INFO_NAV },
+    ],
+    []
+  );
 
   const handleLogout = async () => {
     try {
-      await logout();
+      await logoutWithSync();
       // Clear any cached data
       localStorage.removeItem('cybersec_arena_profile_v1');
       // Navigate to login page
@@ -61,69 +110,68 @@ function Layout() {
     }
   };
 
+  const handleAchievementClose = (badge: string) => {
+    setAchievementQueue(prev => prev.filter(b => b !== badge));
+  };
+
   return (
-    <div className="min-h-screen bg-[#0b0f1a] text-slate-200 grid md:grid-cols-[260px_1fr]">
+    <div className="min-h-screen bg-[#0a0f1a] text-white">
       {/* Sidebar */}
-      <aside className="hidden md:flex flex-col border-r border-slate-800 p-4 gap-4 bg-black/20 backdrop-blur relative overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: `linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px)`, backgroundSize: '40px 40px' }} />
-        <div className="relative flex items-center gap-2">
-          <Shield className="text-cyan-400 drop-shadow-[0_0_8px_#08f7fe]" />
-          <div className="font-extrabold tracking-wide">
-            <span className="text-cyan-400">CyberSec</span> <span className="text-fuchsia-400">Arena</span>
+      <aside className="hidden md:fixed md:left-0 md:top-0 md:h-screen md:w-[280px] md:flex flex-col border-r border-[#1e2a3f] bg-gradient-to-b from-[#0a0f1a] via-[#0f1628] to-[#0a0f1a] p-6 gap-6 backdrop-blur relative overflow-y-auto">
+        {/* Background glow */}
+        <div className="absolute -top-40 -left-40 w-80 h-80 rounded-full opacity-20 blur-3xl pointer-events-none" style={{ background: 'linear-gradient(135deg, #06b6d4, #0284c7)' }} />
+        
+        <div className="relative">
+          <div className="sidebar-brand">
+            <div className="brand-icon p-2.5 rounded-lg bg-gradient-to-br from-[#06b6d4] via-[#0284c7] to-[#0ea5e9] shadow-lg shadow-[#06b6d4]/60">
+              <Fingerprint className="text-white" size={22} strokeWidth={2.5} />
+            </div>
+            <div className="font-bold tracking-wider">
+              <span className="gradient-text text-lg">CyberSec Arena</span>
+              <span className="sidebar-tagline">Learn · Compete · Secure</span>
+            </div>
           </div>
         </div>
-        <nav className="relative flex flex-col gap-1">
-          {navItems.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.to === '/'}              onMouseEnter={() => PREFETCH_MAP[n.to]?.()}
-              onFocus={() => PREFETCH_MAP[n.to]?.()}              className={({ isActive }) =>
-                `flex items-center gap-2 px-3 py-2 rounded-md transition-colors ${
-                  isActive
-                    ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-400/30'
-                    : 'hover:bg-white/5 border border-transparent'
-                }`
-              }
-            >
-              <span className="opacity-90">{n.icon}</span>
-              <span className="text-sm">{n.label}</span>
-            </NavLink>
+
+        <nav className="relative">
+          {NAV_GROUPS.map((group, gi) => (
+            <div key={group.title} className="flex flex-col gap-2">
+              <div className="sidebar-section-title">{group.title}</div>
+              {group.items.map((n) => (
+                <NavLink
+                  key={n.to}
+                  to={n.to}
+                  end={n.to === '/'}
+                  onMouseEnter={() => PREFETCH_MAP[n.to]?.()}
+                  onFocus={() => PREFETCH_MAP[n.to]?.()}
+                  className={({ isActive }) =>
+                    `navlink-custom flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+                      isActive
+                        ? 'bg-gradient-to-r from-[#06b6d4]/20 to-[#0284c7]/20 text-[#0284c7] border border-[#06b6d4]/50 shadow-lg shadow-[#06b6d4]/20'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'
+                    }`
+                  }
+                >
+                  <span className={`flex-shrink-0 ${'navlink-icon-muted'}`}>{n.icon}</span>
+                  <span className="text-sm font-medium">{n.label}</span>
+                </NavLink>
+              ))}
+
+              {gi !== NAV_GROUPS.length - 1 && (
+                <div className="mx-3 my-2 h-px bg-white/5 rounded" />
+              )}
+            </div>
           ))}
         </nav>
-        <div className="relative mt-auto space-y-3">
-          {/* User Info */}
-          {user && (
-            <div className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-full bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center">
-                  <User size={16} className="text-cyan-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-200 truncate">{user.name || user.username}</p>
-                  <p className="text-xs text-slate-400 truncate">@{user.username}</p>
-                </div>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="w-full px-3 py-2 rounded-lg bg-red-500/10 border border-red-400/30 text-red-300 hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2 text-sm"
-              >
-                <LogOut size={14} />
-                Logout
-              </button>
-            </div>
-          )}
-          <AudioControl />
-        </div>
       </aside>
 
       {/* Main */}
-      <main className="relative">
-        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-black/30 backdrop-blur">
+      <main className="relative md:ml-[280px]">
+        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-[#1e2a3f] bg-[#0a0f1a]/30 backdrop-blur">
           <div className="flex items-center gap-2">
-            <Shield className="text-cyan-400" />
+            <Fingerprint className="text-[#ff6b35]" size={22} strokeWidth={2.5} />
             <div className="font-bold">
-              <span className="text-cyan-400">CyberSec</span> <span className="text-fuchsia-400">Arena</span>
+              <span className="text-[#ff6b35]">CyberSec</span> <span className="text-[#ff8c42]">Arena</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -136,7 +184,6 @@ function Layout() {
             <button onClick={() => setCoachOpen(true)} className="px-2 py-1 text-xs rounded bg-fuchsia-500/10 text-fuchsia-300 border border-fuchsia-400/30 flex items-center gap-1">
               <Sparkles size={14} /> Coach
             </button>
-            <AudioControl />
           </div>
         </header>
         <div className="relative p-6">
@@ -151,7 +198,12 @@ function Layout() {
             <AICoach onClose={() => setCoachOpen(false)} />
           </Suspense>
         )}
-        <FloatingChatBot />
+        
+        {/* Achievement Notifications Queue */}
+        <AchievementQueue 
+          achievements={achievementQueue}
+          onAchievementClose={handleAchievementClose}
+        />
       </main>
     </div>
   );

@@ -4,7 +4,7 @@ import newsService, { NewsArticle } from '../services/newsService';
 
 export default function NewsFeed() {
   const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredArticles, setFilteredArticles] = useState<NewsArticle[]>([]);
@@ -12,19 +12,18 @@ export default function NewsFeed() {
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Auto-refresh effect - refreshes news every 3 minutes
+  // Load news immediately on mount and in background
   useEffect(() => {
-    // Always fetch fresh news on component mount (force refresh)
-    loadNews(true);
+    // Show cached data immediately (loading = false)
+    loadNewsWithCache(true);
 
     // Set up auto-refresh interval if enabled
     if (autoRefreshEnabled) {
       refreshIntervalRef.current = setInterval(() => {
-        loadNews(true); // Force refresh on auto-refresh too
-      }, 3 * 60 * 1000); // 3 minutes (reduced from 5)
+        loadNewsInBackground();
+      }, 3 * 60 * 1000); // 3 minutes
     }
 
-    // Cleanup on unmount or when auto-refresh is disabled
     return () => {
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
@@ -46,24 +45,32 @@ export default function NewsFeed() {
     }
   }, [searchQuery, articles]);
 
-  const loadNews = async (forceRefresh: boolean = false) => {
-    setLoading(true);
-    setError(null);
+  // Load news with cache first (immediate display), then fetch fresh
+  const loadNewsWithCache = async (forceRefresh: boolean = false) => {
     try {
-      // Always fetch fresh news from live sources
-      const news = await newsService.getCybersecurityNews(30, forceRefresh); // Increased limit and force refresh
-      setArticles(news);
-      setFilteredArticles(news);
-      setLastRefreshTime(new Date().toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        second: '2-digit'
-      }));
+      // Show loading only for forced refresh
+      if (forceRefresh) {
+        setLoading(true);
+      }
+      
+      setError(null);
+      
+      // Fetch news (returns cache immediately, fetches in background)
+      const news = await newsService.getCybersecurityNews(30, forceRefresh);
+      
+      if (news.length > 0) {
+        setArticles(news);
+        setFilteredArticles(news);
+        setLastRefreshTime(new Date().toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          second: '2-digit'
+        }));
+      }
     } catch (err: any) {
       const errorMessage = err?.message || 'Unknown error';
       console.error('News loading error:', err);
       
-      // Provide more helpful error messages
       if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
         setError('Cannot fetch news. Please check your internet connection and try again.');
       } else if (errorMessage.includes('timeout') || errorMessage.includes('aborted')) {
@@ -71,13 +78,27 @@ export default function NewsFeed() {
       } else {
         setError(`Failed to load news: ${errorMessage}. Please try again later.`);
       }
-      
-      // If we have cached articles, show them even on error
-      if (articles.length === 0) {
-        console.log('No articles loaded, showing empty state');
-      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch fresh news in background without blocking UI
+  const loadNewsInBackground = async () => {
+    try {
+      const news = await newsService.getCybersecurityNews(30, true);
+      if (news.length > 0) {
+        setArticles(news);
+        setFilteredArticles(news);
+        setLastRefreshTime(new Date().toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          second: '2-digit'
+        }));
+      }
+    } catch (err) {
+      // Silent fail in background
+      console.error('Background refresh failed:', err);
     }
   };
 
@@ -100,21 +121,21 @@ export default function NewsFeed() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-cyan-300 mb-2">Cybersecurity News Feed</h1>
+          <h1 className="text-3xl font-bold text-[#A78BFA] mb-2">Cybersecurity News Feed</h1>
           <p className="text-slate-400">Stay updated with the latest cybersecurity news, threats, and updates</p>
           {lastRefreshTime && (
             <div className="flex items-center gap-2 text-xs text-slate-500 mt-2">
               <Clock size={14} />
               <span>Last updated: {lastRefreshTime}</span>
-              {autoRefreshEnabled && <span className="text-cyan-400">(Auto-refreshing every 3 minutes)</span>}
+              {autoRefreshEnabled && <span className="text-[#A78BFA]">(Auto-refreshing every 3 minutes)</span>}
             </div>
           )}
         </div>
         <div className="flex flex-col gap-2">
           <button
-            onClick={() => loadNews(true)}
+            onClick={() => loadNewsWithCache(true)}
             disabled={loading}
-            className="px-4 py-2 rounded-lg bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 hover:bg-cyan-500/30 disabled:opacity-50 transition-colors flex items-center gap-2"
+            className="px-4 py-2 rounded-lg bg-[#A78BFA]/20 border border-[#A78BFA]/30 text-[#A78BFA] hover:bg-purple-500/30 disabled:opacity-50 transition-colors flex items-center gap-2"
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             Refresh Now
@@ -143,7 +164,7 @@ export default function NewsFeed() {
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             placeholder="Search news by title, description, or tags..."
-            className="w-full pl-10 pr-4 py-2 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
+            className="w-full pl-10 pr-4 py-2 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#FF6F61]/50 focus:ring-1 focus:ring-cyan-400/30"
           />
         </div>
         {searchQuery && (
@@ -205,7 +226,7 @@ export default function NewsFeed() {
           {filteredArticles.map((article) => (
             <article
               key={article.id}
-              className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01] hover:border-cyan-400/30 transition-all group"
+              className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01] hover:border-[#FF6F61]/30 transition-all group"
             >
               <div className="flex flex-col md:flex-row gap-4">
                 {/* Article Image (if available) */}
@@ -227,7 +248,7 @@ export default function NewsFeed() {
                   {/* Category and Date */}
                   <div className="flex flex-wrap items-center gap-3 text-xs">
                     {article.category && (
-                      <span className="px-2 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">
+                      <span className="px-2 py-1 rounded bg-[#06b6d4]/20 text-[#06b6d4] border border-[#06b6d4]/30">
                         {article.category}
                       </span>
                     )}
@@ -244,7 +265,7 @@ export default function NewsFeed() {
                   </div>
 
                   {/* Title */}
-                  <h2 className="text-xl font-bold text-cyan-300 group-hover:text-cyan-200 transition-colors">
+                  <h2 className="text-xl font-bold text-[#06b6d4] group-hover:text-cyan-200 transition-colors">
                     <a
                       href={article.url}
                       target="_blank"
@@ -287,7 +308,7 @@ export default function NewsFeed() {
                       href={article.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 text-sm font-medium transition-colors"
+                      className="inline-flex items-center gap-2 text-[#06b6d4] hover:text-[#06b6d4] text-sm font-medium transition-colors"
                     >
                       Read full article
                       <ExternalLink size={14} />

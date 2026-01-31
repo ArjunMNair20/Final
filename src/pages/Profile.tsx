@@ -1,19 +1,30 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   User, Edit2, Save, X, Camera, Upload, Settings, 
   Bell, Volume2, VolumeX, Globe, Moon, Sun, Monitor,
   Eye, EyeOff, Shield, Lock, Unlock, Palette, 
   Type, Zap, Download, Upload as UploadIcon, RotateCcw,
-  CheckCircle, AlertCircle, Info
+  CheckCircle, AlertCircle, Info, LogOut, Trophy, Trash2
 } from 'lucide-react';
 import { useProgress, defaultProgress } from '../lib/progress';
+import { useAuth } from '../contexts/AuthContext';
 import profileService from '../services/profileService';
+import avatar1 from '../assets/avatars/avatar-1.svg';
+import avatar2 from '../assets/avatars/avatar-2.svg';
+import avatar3 from '../assets/avatars/avatar-3.svg';
+import avatar4 from '../assets/avatars/avatar-4.svg';
+import avatar5 from '../assets/avatars/avatar-5.svg';
+import avatar6 from '../assets/avatars/avatar-6.svg';
 import settingsService from '../services/settingsService';
 import { UserProfile } from '../types/profile';
 import { AppSettings } from '../types/profile';
+import ResetProgressModal from '../components/ResetProgressModal';
 
 export default function Profile() {
   const { state, reset, setState } = useProgress();
+  const { logout, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'profile' | 'settings'>('profile');
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -25,7 +36,11 @@ export default function Profile() {
   const [bioValue, setBioValue] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string>('');
+  const [showAvatarChooser, setShowAvatarChooser] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
 
   useEffect(() => {
     // Load profile immediately (from cache)
@@ -40,29 +55,110 @@ export default function Profile() {
     });
   }, []);
 
-  const loadProfile = async () => {
-    // Load profile (returns cached data immediately)
-    const loaded = await profileService.getProfile();
-    setProfile(loaded);
-    setNameValue(loaded.name);
-    setUsernameValue(loaded.username);
-    setBioValue(loaded.bio || '');
-    
-    // Generate avatar preview asynchronously to not block render
-    if (loaded.avatar) {
-      setAvatarPreview(loaded.avatar);
-    } else {
-      // Use requestIdleCallback for avatar generation
-      if ('requestIdleCallback' in window) {
-        requestIdleCallback(() => {
-          setAvatarPreview(profileService.generateAvatarSVG(loaded.name, loaded.username));
-        });
-      } else {
-        setTimeout(() => {
-          setAvatarPreview(profileService.generateAvatarSVG(loaded.name, loaded.username));
-        }, 0);
+  // When user signs in, sync any locally-saved profile to the database
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    (async () => {
+      try {
+        const raw = localStorage.getItem('cybersec_arena_profile_v1');
+        if (!raw) return;
+        const local = JSON.parse(raw || '{}');
+        if (local && local.name && String(local.name).trim().length > 0) {
+          // If current in-memory profile doesn't have the same name, push local to DB
+          if (!profile || (profile.name || '').trim() !== String(local.name).trim()) {
+            try {
+              const saved = await profileService.saveProfile({ name: String(local.name).trim() });
+              setProfile(saved);
+              setNameValue(saved.name || '');
+            } catch (e) {
+              console.error('Failed to sync local profile to DB on sign-in:', e);
+            }
+          }
+        }
+        // Sync avatar if present in local cache (upload data URL or save URL)
+        if (local && local.avatar && String(local.avatar).trim().length > 0) {
+          try {
+            const localAvatar = String(local.avatar).trim();
+            const needsSync = !profile || (profile.avatar || '').trim() !== localAvatar;
+            if (needsSync) {
+              // If the avatar is a data URL or asset URL, upload/save via service
+              const updated = await profileService.uploadAvatarFromUrl(localAvatar);
+              setProfile(updated);
+              setAvatarPreview(updated.avatar || localAvatar);
+            }
+          } catch (e) {
+            console.error('Failed to sync local avatar to DB on sign-in:', e);
+          }
+        }
+      } catch (e) {
+        // ignore
       }
+    })();
+  }, [isAuthenticated]);
+
+  // Reload profile from authoritative source when the user becomes authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadProfile();
     }
+  }, [isAuthenticated]);
+
+  const loadProfile = async () => {
+    // Fast path: read cached profile from localStorage to render immediately
+    try {
+      const raw = localStorage.getItem('cybersec_arena_profile_v1');
+      if (raw) {
+        try {
+          const cached = JSON.parse(raw);
+          setProfile(cached);
+          setNameValue(cached.name || '');
+          setUsernameValue(cached.username || '');
+          setBioValue(cached.bio || '');
+          if (cached.avatar) {
+            setAvatarPreview(cached.avatar);
+          } else {
+            if ('requestIdleCallback' in window) {
+              requestIdleCallback(() => {
+                setAvatarPreview(profileService.generateAvatarSVG(cached.name, cached.username));
+              });
+            } else {
+              setTimeout(() => {
+                setAvatarPreview(profileService.generateAvatarSVG(cached.name, cached.username));
+              }, 0);
+            }
+          }
+        } catch (e) {
+          // ignore parse errors and fall through to fetch
+        }
+      }
+    } catch (e) {
+      // ignore localStorage failures
+    }
+
+    // Background refresh: fetch authoritative profile but don't block initial render
+    profileService.getProfile().then((loaded) => {
+      if (!loaded) return;
+      setProfile(loaded);
+      setNameValue(loaded.name);
+      setUsernameValue(loaded.username);
+      setBioValue(loaded.bio || '');
+
+      if (loaded.avatar) {
+        setAvatarPreview(loaded.avatar);
+      } else {
+        if ('requestIdleCallback' in window) {
+          requestIdleCallback(() => {
+            setAvatarPreview(profileService.generateAvatarSVG(loaded.name, loaded.username));
+          });
+        } else {
+          setTimeout(() => {
+            setAvatarPreview(profileService.generateAvatarSVG(loaded.name, loaded.username));
+          }, 0);
+        }
+      }
+    }).catch(() => {
+      // silent - keep whatever is already shown
+    });
   };
 
   const loadSettings = async () => {
@@ -71,13 +167,52 @@ export default function Profile() {
   };
 
   const handleSaveName = async () => {
-    if (!profile) return;
+    // Allow saving even if `profile` is not yet fully loaded by creating a minimal fallback
+    const trimmed = nameValue?.trim();
+    if (!trimmed) {
+      showMessage('error', 'Name cannot be empty');
+      return;
+    }
+
+    // Avoid no-op
+    if (profile && trimmed === (profile.name || '').trim()) {
+      setIsEditingName(false);
+      return;
+    }
+
     try {
-      const updated = await profileService.updateName(nameValue);
+      // Primary attempt: update via profileService which will save to Supabase when possible
+      const updated = await profileService.updateName(trimmed);
       setProfile(updated);
       setIsEditingName(false);
       showMessage('success', 'Name updated successfully');
+      return;
     } catch (error) {
+      console.error('Failed to update name (primary):', error);
+    }
+
+    // Secondary: try saveProfile which has a local fallback when unauthenticated
+    try {
+      const saved = await profileService.saveProfile({ name: trimmed });
+      setProfile(saved);
+      setIsEditingName(false);
+      showMessage('success', 'Name saved locally (will sync when available)');
+      return;
+    } catch (error) {
+      console.error('Fallback saveProfile failed:', error);
+    }
+
+    // Last resort: write directly to localStorage so UI reflects the change
+    try {
+      const stored = localStorage.getItem('cybersec_arena_profile_v1');
+      const current = stored ? JSON.parse(stored) : {};
+      const fallback = { ...current, name: trimmed, updatedAt: new Date().toISOString() };
+      localStorage.setItem('cybersec_arena_profile_v1', JSON.stringify(fallback));
+      setProfile((prev) => ({ ...(prev || {}), ...fallback } as UserProfile));
+      setIsEditingName(false);
+      showMessage('success', 'Name saved locally (will sync when you sign in)');
+    } catch (e) {
+      console.error('Local fallback failed:', e);
       showMessage('error', 'Failed to update name');
     }
   };
@@ -129,22 +264,45 @@ export default function Profile() {
   };
 
   const handleSaveAvatar = async () => {
-    if (!profile || !avatarPreview) return;
+    if (!avatarPreview && !avatarFile) return;
+    setIsUploading(true);
     try {
-      const updated = await profileService.updateAvatar(avatarPreview);
+      let updated;
+      if (avatarFile) {
+        // Upload the selected file to Supabase storage and save resulting public URL
+        updated = await profileService.uploadAvatarBlob(avatarFile, avatarFile.name);
+      } else {
+        // avatarPreview may be a data URL or an asset URL
+        updated = await profileService.uploadAvatarFromUrl(avatarPreview);
+      }
       setProfile(updated);
       setAvatarFile(null);
-      showMessage('success', 'Avatar updated successfully');
-    } catch (error) {
-      showMessage('error', 'Failed to update avatar');
+      setAvatarPreview(updated.avatar || avatarPreview);
+      showMessage('success', 'Avatar saved');
+    } catch (err: any) {
+      console.error('handleSaveAvatar error:', err);
+      const msg = (err && (err.message || String(err))) || 'Failed to update avatar';
+      showMessage('error', msg);
+    } finally {
+      setIsUploading(false);
     }
   };
 
-  const handleGenerateAvatar = () => {
-    if (!profile) return;
-    const generated = profileService.generateAvatarSVG(profile.name, profile.username);
-    setAvatarPreview(generated);
-    setAvatarFile(null);
+  const handleChooseAvatar = async (src: string) => {
+    setIsUploading(true);
+    try {
+      setShowAvatarChooser(false);
+      const updated = await profileService.uploadAvatarFromUrl(src);
+      setProfile(updated);
+      setAvatarPreview(updated.avatar || src);
+      showMessage('success', 'Avatar saved');
+    } catch (err: any) {
+      console.error('choose avatar failed', err);
+      const msg = (err && (err.message || String(err))) || 'Failed to select avatar';
+      showMessage('error', msg);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleSettingChange = async <K extends keyof AppSettings>(
@@ -195,39 +353,273 @@ export default function Profile() {
     }
   };
 
+  const handleResetProgress = async () => {
+    setShowResetConfirm(false);
+    try {
+      // Call the reset function from context to clear progress in memory
+      reset();
+      showMessage('success', 'All progress has been reset! You can now start fresh from the beginning.');
+    } catch (error) {
+      showMessage('error', 'Failed to reset progress');
+    }
+  };
+
   const showMessage = (type: 'success' | 'error', text: string) => {
     setSaveMessage({ type, text });
     setTimeout(() => setSaveMessage(null), 3000);
   };
 
-  const exportData = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'cybersec-arena-progress.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const exportData = async () => {
+    // Create PDF content from progress data
+    const ctfCount = state.ctf.solvedIds.length;
+    const phishCount = state.phish.solvedIds.length;
+    const codeCount = state.code.solvedIds.length;
+    const quizStats = `${state.quiz.correct}/${state.quiz.answered}`;
+    const badgeCount = state.badges.length;
 
-  const importData = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result));
-        setState({ ...defaultProgress, ...parsed });
-        showMessage('success', 'Progress imported successfully');
-      } catch {
-        showMessage('error', 'Invalid progress file');
+    // Safely prepare display name for HTML
+    const escapeHtml = (str: string) =>
+      String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    // Try to get the authoritative profile (may return cached or DB-backed)
+    let displayNameRaw: string | null = null;
+    try {
+      const authoritative = await profileService.getProfile();
+      if (authoritative && authoritative.name && String(authoritative.name).trim().length > 0) {
+        displayNameRaw = authoritative.name;
       }
-    };
-    reader.readAsText(file);
+    } catch (e) {
+      // ignore
+    }
+
+    if (!displayNameRaw && profile && profile.name && profile.name.trim().length > 0) {
+      displayNameRaw = profile.name;
+    }
+
+    if (!displayNameRaw) {
+      try {
+        const stored = localStorage.getItem('cybersec_arena_profile_v1');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.name && String(parsed.name).trim().length > 0) {
+            displayNameRaw = parsed.name;
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    if (!displayNameRaw) displayNameRaw = 'Player';
+    const displayName = escapeHtml(displayNameRaw);
+
+    // Create HTML content for PDF
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Cybersec Arena - Progress Report</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background-color: #f5f5f5;
+            color: #333;
+          }
+          .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 3px solid #8B5CF6;
+            padding-bottom: 20px;
+          }
+          .title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #8B5CF6;
+            margin: 0;
+          }
+          .subtitle {
+            font-size: 14px;
+            color: #888;
+            margin: 10px 0 0 0;
+          }
+          .date {
+            font-size: 12px;
+            color: #999;
+            margin-top: 10px;
+          }
+          .section {
+            margin-bottom: 30px;
+          }
+          .section-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #8B5CF6;
+            margin-bottom: 15px;
+            border-left: 4px solid #8B5CF6;
+            padding-left: 10px;
+          }
+          .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+          }
+          .stat-box {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+          }
+          .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+          }
+          .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #8B5CF6;
+          }
+          .stat-description {
+            font-size: 11px;
+            color: #999;
+            margin-top: 5px;
+          }
+          .badges-section {
+            margin-top: 20px;
+          }
+          .badge-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+          }
+          .badge-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+          }
+          .badge {
+            background-color: #fbbf24;
+            color: #333;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+          }
+          .no-badges {
+            color: #999;
+            font-size: 12px;
+            font-style: italic;
+          }
+          .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+            font-size: 11px;
+            color: #999;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 class="title">🛡️ Cybersec Arena</h1>
+            <p class="subtitle">Progress Report — ${displayName}</p>
+            <p class="date">Generated on ${new Date().toLocaleString()}</p>
+          </div>
+
+          <div class="section">
+            <div class="section-title">📊 Challenge Progress</div>
+            <div class="stats-grid">
+              <div class="stat-box">
+                <div class="stat-label">CTF Challenges</div>
+                <div class="stat-value">${ctfCount}</div>
+                <div class="stat-description">Challenges solved</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">Phishing Detection</div>
+                <div class="stat-value">${phishCount}</div>
+                <div class="stat-description">Phishing attempts detected</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">Code Security</div>
+                <div class="stat-value">${codeCount}</div>
+                <div class="stat-description">Code vulnerabilities fixed</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">Cyber Quiz</div>
+                <div class="stat-value">${quizStats}</div>
+                <div class="stat-description">Correct answers / Total</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Game Performance section removed (Firewall Defender omitted) -->
+
+          <div class="section badges-section">
+            <div class="section-title">🏆 Achievements</div>
+            <div class="badge-label">Unlocked Badges (${badgeCount})</div>
+            ${badgeCount > 0 ? `
+              <div class="badge-list">
+                ${state.badges.map(badge => `<div class="badge">${badge}</div>`).join('')}
+              </div>
+            ` : `
+              <div class="no-badges">No badges unlocked yet. Keep playing to earn achievements!</div>
+            `}
+          </div>
+
+          <div class="footer">
+            <p>This report was automatically generated by Cybersec Arena.</p>
+            <p>Keep challenging yourself and improving your cybersecurity skills! 🔐</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    // Create a blob from the HTML content
+    const element = document.createElement('div');
+    element.innerHTML = htmlContent;
+    document.body.appendChild(element);
+
+    // Use print dialog to save as PDF
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      
+      // Wait a moment for the content to render, then print
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    }
+
+    document.body.removeChild(element);
+    showMessage('success', 'Progress report opened. Use your browser\'s Print function to save as PDF.');
   };
 
   if (!profile || !settings) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="animate-spin text-cyan-400">Loading...</div>
+        <div className="animate-spin text-[#8B5CF6]">Loading...</div>
       </div>
     );
   }
@@ -236,7 +628,7 @@ export default function Profile() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-cyan-300 mb-2">Profile & Settings</h1>
+        <h1 className="text-3xl font-bold text-purple-400 mb-2">Profile & Settings</h1>
         <p className="text-slate-400">Manage your profile information and application settings</p>
       </div>
 
@@ -264,7 +656,7 @@ export default function Profile() {
           onClick={() => setActiveTab('profile')}
           className={`px-4 py-2 font-medium transition-colors border-b-2 ${
             activeTab === 'profile'
-              ? 'border-cyan-400 text-cyan-300'
+              ? 'border-purple-400 text-purple-400'
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -275,7 +667,7 @@ export default function Profile() {
           onClick={() => setActiveTab('settings')}
           className={`px-4 py-2 font-medium transition-colors border-b-2 ${
             activeTab === 'settings'
-              ? 'border-cyan-400 text-cyan-300'
+              ? 'border-purple-400 text-purple-400'
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -289,10 +681,10 @@ export default function Profile() {
         <div className="space-y-6">
           {/* Avatar Section */}
           <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01]">
-            <h2 className="text-xl font-semibold text-cyan-300 mb-4">Avatar</h2>
+            <h2 className="text-xl font-semibold text-[#8B5CF6] mb-4">Avatar</h2>
             <div className="flex flex-col md:flex-row gap-6 items-start">
               <div className="flex-shrink-0">
-                <div className="w-32 h-32 rounded-full border-2 border-cyan-400/30 overflow-hidden bg-slate-800 flex items-center justify-center">
+                <div className="w-32 h-32 rounded-full border-2 border-[#8B5CF6]/30 overflow-hidden bg-slate-800 flex items-center justify-center">
                   {avatarPreview ? (
                     <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
                   ) : (
@@ -302,7 +694,7 @@ export default function Profile() {
               </div>
               <div className="flex-1 space-y-3">
                 <div className="flex flex-wrap gap-2">
-                  <label className="px-4 py-2 rounded-lg bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 hover:bg-cyan-500/30 cursor-pointer transition-colors flex items-center gap-2">
+                  <label className="px-4 py-2 rounded-lg bg-purple-500/20 border border-purple-400/30 text-purple-400 hover:bg-purple-500/30 cursor-pointer transition-colors flex items-center gap-2">
                     <Upload size={16} />
                     Upload Image
                     <input
@@ -312,17 +704,19 @@ export default function Profile() {
                       onChange={handleAvatarUpload}
                     />
                   </label>
+                  
                   <button
-                    onClick={handleGenerateAvatar}
-                    className="px-4 py-2 rounded-lg bg-fuchsia-500/20 border border-fuchsia-400/30 text-fuchsia-300 hover:bg-fuchsia-500/30 transition-colors flex items-center gap-2"
+                    onClick={() => setShowAvatarChooser(true)}
+                    className="px-4 py-2 rounded-lg bg-violet-500/20 border border-violet-400/30 text-violet-300 hover:bg-violet-500/30 transition-colors flex items-center gap-2"
                   >
-                    <Palette size={16} />
-                    Generate Avatar
+                    <User size={16} />
+                    Choose Avatar
                   </button>
                   {avatarFile && (
                     <button
                       onClick={handleSaveAvatar}
-                      className="px-4 py-2 rounded-lg bg-green-500/20 border border-green-400/30 text-green-300 hover:bg-green-500/30 transition-colors flex items-center gap-2"
+                      disabled={isUploading}
+                      className={`px-4 py-2 rounded-lg bg-green-500/20 border border-green-400/30 text-green-300 transition-colors flex items-center gap-2 ${isUploading ? 'opacity-60 cursor-not-allowed' : 'hover:bg-green-500/30'}`}
                     >
                       <Save size={16} />
                       Save Avatar
@@ -336,17 +730,49 @@ export default function Profile() {
             </div>
           </div>
 
+          {/* Avatar chooser modal */}
+          {showAvatarChooser && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/50" onClick={() => setShowAvatarChooser(false)} />
+              <div className="relative bg-slate-900 border border-slate-800 rounded-lg p-6 max-w-lg w-full z-10">
+                <h3 className="text-lg font-semibold text-purple-400 mb-4">Choose an Avatar</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  {[avatar1, avatar2, avatar3, avatar4, avatar5, avatar6].map((src, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleChooseAvatar(src)}
+                      disabled={isUploading}
+                      className={`p-2 rounded-lg bg-slate-800 border border-slate-700 transform transition-all ${isUploading ? 'opacity-60 cursor-not-allowed' : 'hover:scale-105'}`}
+                    >
+                      <img src={src} alt={`avatar-${idx + 1}`} className="w-full h-20 object-cover rounded" />
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={() => setShowAvatarChooser(false)}
+                    className="px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-slate-200 hover:bg-slate-700 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Name Section */}
           <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01]">
-            <h2 className="text-xl font-semibold text-cyan-300 mb-4">Name</h2>
+            <h2 className="text-xl font-semibold text-purple-400 mb-4">Name</h2>
             {isEditingName ? (
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={nameValue}
                   onChange={(e) => setNameValue(e.target.value)}
+                  onBlur={() => { handleSaveName(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveName(); }}
                   placeholder="Enter your name"
-                  className="flex-1 px-4 py-2 rounded-lg bg-black/40 border border-slate-800 text-slate-200 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
+                  className="flex-1 px-4 py-2 rounded-lg bg-black/40 border border-slate-800 text-slate-200 focus:outline-none focus:border-purple-400/50 focus:ring-1 focus:ring-purple-400/30"
                 />
                 <button
                   onClick={handleSaveName}
@@ -380,7 +806,7 @@ export default function Profile() {
 
           {/* Username Section */}
           <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01]">
-            <h2 className="text-xl font-semibold text-cyan-300 mb-4">Username</h2>
+            <h2 className="text-xl font-semibold text-purple-400 mb-4">Username</h2>
             {isEditingUsername ? (
               <div className="space-y-2">
                 <input
@@ -388,7 +814,7 @@ export default function Profile() {
                   value={usernameValue}
                   onChange={(e) => setUsernameValue(e.target.value)}
                   placeholder="Enter username"
-                  className="w-full px-4 py-2 rounded-lg bg-black/40 border border-slate-800 text-slate-200 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
+                  className="w-full px-4 py-2 rounded-lg bg-black/40 border border-slate-800 text-slate-200 focus:outline-none focus:border-purple-400/50 focus:ring-1 focus:ring-purple-400/30"
                 />
                 <p className="text-xs text-slate-500">
                   Username must be at least 3 characters and can only contain letters, numbers, and underscores
@@ -469,13 +895,146 @@ export default function Profile() {
             )}
           </div>
 
+          {/* Achievement Badges Gallery */}
+          <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01]">
+            <h2 className="text-xl font-semibold text-cyan-300 mb-4 flex items-center gap-2">
+              <Trophy className="text-yellow-400" size={20} />
+              Achievement Badges
+            </h2>
+            {state.badges && state.badges.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {state.badges.map((badge) => (
+                  <div
+                    key={badge}
+                    className="p-4 rounded-lg bg-gradient-to-br from-yellow-500/10 to-amber-500/10 border border-yellow-400/30 text-center hover:scale-105 transition-transform"
+                  >
+                    <div className="text-3xl mb-2">🏆</div>
+                    <p className="text-sm font-semibold text-yellow-300">{badge}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-slate-400">
+                <Trophy className="mx-auto mb-2 opacity-50" size={48} />
+                <p>No badges earned yet. Complete challenges to unlock achievements!</p>
+              </div>
+            )}
+          </div>
+
+          {/* Progress Charts */}
+          <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01]">
+            <h2 className="text-xl font-semibold text-cyan-300 mb-4 flex items-center gap-2">
+              <Zap size={20} />
+              Progress Analytics
+            </h2>
+            <div className="space-y-6">
+              {/* Overall Progress */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-slate-300">Overall Progress</span>
+                  <span className="text-sm font-semibold text-cyan-400">
+                    {Math.round(
+                      ((state.ctf.solvedIds.length + state.phish.solvedIds.length + state.code.solvedIds.length) /
+                        (100 + 20 + 30)) *
+                        100
+                    )}%
+                  </span>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-3">
+                  <div
+                    className="bg-gradient-to-r from-cyan-500 to-fuchsia-500 h-3 rounded-full transition-all duration-500"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        ((state.ctf.solvedIds.length + state.phish.solvedIds.length + state.code.solvedIds.length) /
+                          (100 + 20 + 30)) *
+                          100
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Category Breakdown */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-slate-300">Category Breakdown</h3>
+                
+                {/* CTF Progress */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-slate-400">CTF Challenges</span>
+                    <span className="text-xs font-semibold text-cyan-400">
+                      {state.ctf.solvedIds.length} solved
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-800 rounded-full h-2">
+                    <div
+                      className="bg-cyan-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, (state.ctf.solvedIds.length / 100) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Phish Hunt Progress */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-slate-400">Phish Hunt</span>
+                    <span className="text-xs font-semibold text-fuchsia-400">
+                      {state.phish.solvedIds.length} solved
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-800 rounded-full h-2">
+                    <div
+                      className="bg-fuchsia-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, (state.phish.solvedIds.length / 20) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Code & Secure Progress */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-slate-400">Code & Secure</span>
+                    <span className="text-xs font-semibold text-yellow-400">
+                      {state.code.solvedIds.length} solved
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-800 rounded-full h-2">
+                    <div
+                      className="bg-yellow-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, (state.code.solvedIds.length / 30) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Quiz Progress */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-slate-400">AI Cyber Quiz</span>
+                    <span className="text-xs font-semibold text-green-400">
+                      {state.quiz.correct} correct answers
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-800 rounded-full h-2">
+                    <div
+                      className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, (state.quiz.correct / 50) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Firewall Defender removed from UI */}
+              </div>
+            </div>
+          </div>
+
           {/* Progress Management */}
           <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01]">
             <h2 className="text-xl font-semibold text-cyan-300 mb-4">Progress Management</h2>
             <p className="text-sm text-slate-400 mb-4">Export or import your game progress</p>
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={reset}
+                onClick={() => setShowResetConfirm(true)}
                 className="px-4 py-2 rounded-lg bg-fuchsia-500/20 border border-fuchsia-400/30 text-fuchsia-300 hover:bg-fuchsia-500/30 transition-colors flex items-center gap-2"
               >
                 <RotateCcw size={16} />
@@ -486,22 +1045,30 @@ export default function Profile() {
                 className="px-4 py-2 rounded-lg bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 hover:bg-cyan-500/30 transition-colors flex items-center gap-2"
               >
                 <Download size={16} />
-                Export Progress
+                Export Progress (PDF)
               </button>
-              <label className="px-4 py-2 rounded-lg bg-white/5 border border-slate-800 cursor-pointer hover:bg-white/10 transition-colors flex items-center gap-2">
-                <UploadIcon size={16} />
-                Import Progress
-                <input
-                  type="file"
-                  accept="application/json"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) importData(f);
-                  }}
-                />
-              </label>
             </div>
+          </div>
+
+          {/* Logout Section */}
+          <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01]">
+            <h2 className="text-xl font-semibold text-red-300 mb-4">Account</h2>
+            <p className="text-sm text-slate-400 mb-4">Sign out of your account</p>
+            <button
+              onClick={async () => {
+                try {
+                  await logout();
+                  navigate('/login', { replace: true });
+                } catch (error) {
+                  console.error('Failed to logout:', error);
+                  navigate('/login', { replace: true });
+                }
+              }}
+              className="px-4 py-2 rounded-lg bg-red-500/20 border border-red-400/30 text-red-300 hover:bg-red-500/30 transition-colors flex items-center gap-2"
+            >
+              <LogOut size={16} />
+              Logout
+            </button>
           </div>
         </div>
       )}
@@ -516,27 +1083,44 @@ export default function Profile() {
               Appearance
             </h2>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-slate-200 font-medium">Theme</label>
-                  <p className="text-xs text-slate-500">Choose your preferred color theme</p>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-slate-200 font-medium">Theme</label>
+                    <p className="text-xs text-slate-500">Choose your preferred color theme</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {(['dark', 'light', 'auto'] as const).map((theme) => (
+                      <button
+                        key={theme}
+                        onClick={() => handleSettingChange('theme', theme)}
+                        className={`px-4 py-2 rounded-lg border transition-all flex items-center gap-2 ${
+                          settings.theme === theme
+                            ? 'bg-cyan-500/20 border-cyan-400/30 text-cyan-300 shadow-lg scale-105'
+                            : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:bg-slate-700'
+                        }`}
+                        title={theme === 'dark' ? 'Dark Mode' : theme === 'light' ? 'Light Mode' : 'Auto (System)'}
+                      >
+                        {theme === 'dark' && <Moon size={16} />}
+                        {theme === 'light' && <Sun size={16} />}
+                        {theme === 'auto' && <Monitor size={16} />}
+                        <span className="text-xs font-medium">
+                          {theme === 'dark' ? 'Dark' : theme === 'light' ? 'Light' : 'Auto'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  {(['dark', 'light', 'auto'] as const).map((theme) => (
-                    <button
-                      key={theme}
-                      onClick={() => handleSettingChange('theme', theme)}
-                      className={`px-3 py-2 rounded-lg border transition-colors ${
-                        settings.theme === theme
-                          ? 'bg-cyan-500/20 border-cyan-400/30 text-cyan-300'
-                          : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:bg-slate-700'
-                      }`}
-                    >
-                      {theme === 'dark' && <Moon size={16} />}
-                      {theme === 'light' && <Sun size={16} />}
-                      {theme === 'auto' && <Monitor size={16} />}
-                    </button>
-                  ))}
+                <div className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50">
+                  <p className="text-xs text-slate-400 mb-1">Current Theme:</p>
+                  <p className="text-sm font-semibold text-cyan-300">
+                    {settings.theme === 'dark' ? '🌙 Dark Mode' : settings.theme === 'light' ? '☀️ Light Mode' : '🖥️ Auto (Follows System)'}
+                  </p>
+                  {settings.theme === 'auto' && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Automatically switches based on your system preferences
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -785,20 +1369,80 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Reset Settings */}
-          <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01]">
-            <h2 className="text-xl font-semibold text-red-300 mb-4">Danger Zone</h2>
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-slate-200 font-medium">Reset All Settings</label>
-                <p className="text-xs text-slate-500">Restore all settings to their default values</p>
-              </div>
+          {/* Reset & Danger Zone */}
+          <div className="space-y-4">
+            {/* Reset Progress */}
+            <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-orange-500/10 to-orange-600/10">
+              <h2 className="text-xl font-semibold text-orange-300 mb-4 flex items-center gap-2">
+                <Trash2 size={20} />
+                Reset Progress
+              </h2>
+              <p className="text-sm text-slate-300 mb-4">
+                Reset progress for specific challenges or all sections. Other sections will remain unaffected.
+              </p>
               <button
-                onClick={handleResetSettings}
-                className="px-4 py-2 rounded-lg bg-red-500/20 border border-red-400/30 text-red-300 hover:bg-red-500/30 transition-colors flex items-center gap-2"
+                onClick={() => setShowResetModal(true)}
+                className="px-4 py-2 rounded-lg bg-orange-500/20 border border-orange-400/30 text-orange-300 hover:bg-orange-500/30 transition-colors flex items-center gap-2"
               >
-                <RotateCcw size={16} />
-                Reset Settings
+                <Trash2 size={16} />
+                Manage Progress Reset
+              </button>
+            </div>
+
+            {/* Reset Settings */}
+            <div className="border border-slate-800 rounded-lg p-6 bg-gradient-to-br from-white/[0.03] to-white/[0.01]">
+              <h2 className="text-xl font-semibold text-red-300 mb-4">Danger Zone</h2>
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-slate-200 font-medium">Reset All Settings</label>
+                  <p className="text-xs text-slate-500">Restore all settings to their default values</p>
+                </div>
+                <button
+                  onClick={handleResetSettings}
+                  className="px-4 py-2 rounded-lg bg-red-500/20 border border-red-400/30 text-red-300 hover:bg-red-500/30 transition-colors flex items-center gap-2"
+                >
+                  <RotateCcw size={16} />
+                  Reset Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Progress Confirmation Modal */}
+      <ResetProgressModal isOpen={showResetModal} onClose={() => setShowResetModal(false)} />
+
+      {/* Old Reset Progress Confirmation Modal - Can be removed */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-red-300 mb-2">Reset All Progress?</h3>
+            <p className="text-sm text-slate-400 mb-4">
+              This will permanently delete all your progress including:
+            </p>
+              <ul className="text-sm text-slate-400 mb-4 space-y-1 ml-4 list-disc">
+              <li>Solved CTF challenges</li>
+              <li>Phishing hunt attempts</li>
+              <li>Code & Secure solutions</li>
+              <li>Quiz answers</li>
+              <li>Badges earned</li>
+            </ul>
+            <p className="text-xs text-slate-500 mb-6">
+              ⚠️ This action cannot be undone. You will need to start from the beginning.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                className="flex-1 px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetProgress}
+                className="flex-1 px-4 py-2 rounded-lg bg-red-500/30 border border-red-400/50 text-red-300 hover:bg-red-500/40 transition-colors font-medium"
+              >
+                Reset All Progress
               </button>
             </div>
           </div>

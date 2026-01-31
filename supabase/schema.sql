@@ -134,6 +134,12 @@ CREATE POLICY "Users can insert their own leaderboard entry"
   ON leaderboard_scores FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+-- Allow system/function to insert leaderboard entries (for triggers)
+CREATE POLICY "System can insert leaderboard entries"
+  ON leaderboard_scores FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
 -- ============================================
 -- 5. FUNCTIONS AND TRIGGERS
 -- ============================================
@@ -178,6 +184,19 @@ BEGIN
   
   INSERT INTO user_progress (user_id)
   VALUES (NEW.id)
+  ON CONFLICT (user_id) DO NOTHING;
+  
+  INSERT INTO leaderboard_scores (user_id, username, total_score, ctf_score, phish_score, code_score, quiz_score, firewall_score)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'username', 'user_' || substr(NEW.id::text, 1, 8)),
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  )
   ON CONFLICT (user_id) DO NOTHING;
   
   RETURN NEW;
@@ -245,10 +264,3 @@ ORDER BY ls.total_score DESC, ls.last_updated ASC;
 
 -- Grant access to the view
 GRANT SELECT ON leaderboard_view TO authenticated;
-
--- ============================================
--- 7. INITIAL DATA (Optional)
--- ============================================
-
--- You can add any initial data here if needed
-

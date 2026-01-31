@@ -1,8 +1,11 @@
 import { useState } from 'react';
-import { useProgress } from '../lib/progress';
+import { useProgress, useSyncProgressToLeaderboard } from '../lib/progress';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function FirewallDefender() {
   const { state, setFirewallBest } = useProgress();
+  const syncToLeaderboard = useSyncProgressToLeaderboard();
+  const { user } = useAuth();
   const [sessionScore, setSessionScore] = useState(0);
   const [threats, setThreats] = useState<number>(5);
 
@@ -16,6 +19,9 @@ export default function FirewallDefender() {
     setFirewallBest(sessionScore);
     setSessionScore(0);
     setThreats(5 + Math.floor(Math.random() * 6));
+    try {
+      syncToLeaderboard(user || null);
+    } catch (_) {}
   };
 
   return (

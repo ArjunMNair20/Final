@@ -1,12 +1,15 @@
 import { useState, useMemo } from 'react';
 import { CODE_CHALLENGES } from '../data/code';
-import { useProgress } from '../lib/progress';
+import { useProgress, useSyncProgressToLeaderboard } from '../lib/progress';
+import { useAuth } from '../contexts/AuthContext';
 import { Code, Shield, AlertTriangle, CheckCircle, XCircle, Filter } from 'lucide-react';
 
 type Difficulty = 'beginner' | 'intermediate' | 'expert' | 'all';
 
 export default function CodeAndSecure() {
   const { state, markCodeSolved } = useProgress();
+  const syncToLeaderboard = useSyncProgressToLeaderboard();
+  const { user } = useAuth();
   const [choice, setChoice] = useState<Record<string, number | null>>({});
   const [showExplain, setShowExplain] = useState<Record<string, boolean>>({});
   const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>('all');
@@ -16,6 +19,9 @@ export default function CodeAndSecure() {
     const c = choice[id];
     if (c === answer) {
       markCodeSolved(id);
+      try {
+        syncToLeaderboard(user || null);
+      } catch (_) {}
     }
     setShowExplain((s) => ({ ...s, [id]: true }));
   };
@@ -72,8 +78,8 @@ export default function CodeAndSecure() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-cyan-300 mb-2 flex items-center gap-2">
-          <Code className="text-cyan-400" size={32} />
+        <h1 className="text-3xl font-bold text-[#A78BFA] mb-2 flex items-center gap-2">
+          <Code className="text-[#A78BFA]" size={32} />
           Code & Secure
         </h1>
         <p className="text-slate-400 mb-4">
@@ -84,11 +90,11 @@ export default function CodeAndSecure() {
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-slate-400">Progress</span>
-            <span className="text-sm font-semibold text-cyan-400">{solvedCount} / {totalCount} solved ({progress}%)</span>
+            <span className="text-sm font-semibold text-[#06b6d4]">{solvedCount} / {totalCount} solved ({progress}%)</span>
           </div>
           <div className="w-full bg-slate-800 rounded-full h-2">
             <div 
-              className="bg-gradient-to-r from-cyan-500 to-fuchsia-500 h-2 rounded-full transition-all duration-300"
+              className="bg-gradient-to-r from-[#FF6F61]-500 to-[#6A0572]-500 h-2 rounded-full transition-all duration-300"
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -137,7 +143,7 @@ export default function CodeAndSecure() {
                 key={q.id} 
                 className={`border rounded-lg p-5 bg-gradient-to-br from-white/[0.03] to-white/[0.01] transition-all ${
                   solved 
-                    ? 'border-cyan-400/30 bg-cyan-500/5' 
+                    ? 'border-[#FF6F61]/30 bg-cyan-500/5' 
                     : isWrong
                     ? 'border-red-400/30 bg-red-500/5'
                     : 'border-slate-800 hover:border-slate-700'
@@ -153,7 +159,7 @@ export default function CodeAndSecure() {
                         {q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1)}
                       </span>
                       {solved && (
-                        <CheckCircle className="text-cyan-400" size={20} />
+                        <CheckCircle className="text-[#06b6d4]" size={20} />
                       )}
                     </div>
                     <p className="text-sm text-slate-400">{q.question}</p>
@@ -191,7 +197,7 @@ export default function CodeAndSecure() {
                             : isWrongAnswer
                             ? 'border-red-400/50 bg-red-500/10'
                             : isSelected
-                            ? 'border-cyan-400/40 bg-cyan-500/10'
+                            ? 'border-[#FF6F61]/40 bg-cyan-500/10'
                             : 'border-slate-800 bg-black/30 hover:bg-black/40'
                         } ${solved ? 'cursor-default' : ''}`}
                       >
@@ -229,7 +235,7 @@ export default function CodeAndSecure() {
                         ? 'bg-green-500/20 text-green-300 border-green-400/30'
                         : choice[q.id] == null
                         ? 'bg-slate-700/50 text-slate-400 border-slate-600 cursor-not-allowed'
-                        : 'bg-cyan-500/20 text-cyan-300 border-cyan-400/30 hover:bg-cyan-500/30'
+                        : 'bg-[#06b6d4]/20 text-[#06b6d4] border-[#06b6d4]/30 hover:bg-cyan-500/30'
                     }`}
                   >
                     {solved ? '✓ Solved' : 'Check Answer'}
@@ -274,9 +280,9 @@ export default function CodeAndSecure() {
 
       {/* Completion Message */}
       {solvedCount === totalCount && (
-        <div className="p-6 rounded-lg bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10 border border-cyan-400/30 text-center">
-          <CheckCircle className="text-cyan-400 mx-auto mb-2" size={32} />
-          <h3 className="text-xl font-bold text-cyan-300 mb-2">Congratulations!</h3>
+        <div className="p-6 rounded-lg bg-gradient-to-r from-[#FF6F61]-500/10 to-[#6A0572]-500/10 border border-[#FF6F61]/30 text-center">
+          <CheckCircle className="text-[#06b6d4] mx-auto mb-2" size={32} />
+          <h3 className="text-xl font-bold text-[#06b6d4] mb-2">Congratulations!</h3>
           <p className="text-slate-300">
             You've completed all secure coding challenges! You're now equipped with knowledge to write secure code.
           </p>

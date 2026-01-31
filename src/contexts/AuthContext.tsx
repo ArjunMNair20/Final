@@ -23,34 +23,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let isMounted = true;
     let unsubscribe: (() => void) | undefined;
 
-    // Load user on mount - use requestIdleCallback to not block initial render
-    const loadUser = async () => {
+    const initializeAuth = async () => {
       try {
         // Check localStorage first for faster initial load
-        const session = localStorage.getItem('sb-' + (import.meta.env.VITE_SUPABASE_URL?.split('//')[1]?.split('.')[0] || 'default') + '-auth-token');
-        if (!session) {
-          if (isMounted) {
-            setIsLoading(false);
-          }
+        const hasSession = localStorage.getItem(`sb-auth-token`) || 
+                          Object.keys(localStorage).some(k => k.includes('auth-token'));
+        
+        if (!hasSession) {
+          if (isMounted) setIsLoading(false);
           return;
         }
 
-        // Then load full user data asynchronously
+        // Load user data
         const currentUser = await authService.getCurrentUser();
         if (isMounted) {
           setUser(currentUser);
-          setIsLoading(false);
         }
       } catch (error) {
-        console.error('Failed to load user:', error);
-        if (isMounted) {
-          setIsLoading(false);
-        }
+        console.error('Auth init error:', error);
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
-    };
 
-    // Defer auth state listener setup to not block initial render
-    const setupAuthListener = async () => {
+      // Setup auth listener
       try {
         const s = await getSupabase();
         if (!s || !isMounted) return;
@@ -61,39 +56,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
             try {
               const currentUser = await authService.getCurrentUser();
-              if (isMounted) {
-                setUser(currentUser);
-              }
+              if (isMounted) setUser(currentUser);
             } catch (error) {
-              console.error('Failed to get user after auth change:', error);
-              if (isMounted) {
-                setUser(null);
-              }
+              console.error('Auth state change error:', error);
+              if (isMounted) setUser(null);
             }
           } else if (event === 'SIGNED_OUT') {
-            if (isMounted) {
-              setUser(null);
-            }
+            if (isMounted) setUser(null);
           }
         });
 
         unsubscribe = () => subscription.unsubscribe();
       } catch (error) {
-        console.error('Failed to setup auth listener:', error);
+        console.error('Auth listener setup error:', error);
       }
     };
 
-    // Load user immediately but non-blocking
-    loadUser();
-
-    // Setup auth listener after a short delay to not block initial render
-    const timeoutId = setTimeout(() => {
-      setupAuthListener();
-    }, 100);
+    // Start auth initialization
+    initializeAuth();
 
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
       if (unsubscribe) unsubscribe();
     };
   }, []);

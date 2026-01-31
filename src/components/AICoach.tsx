@@ -40,9 +40,9 @@ export default function AICoach({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-lg border border-cyan-400/30 rounded-lg bg-[#0b0f1a] p-4 shadow-[0_0_30px_rgba(8,247,254,0.1)]">
+      <div className="relative w-full max-w-lg border border-[#FF6F61]/30 rounded-lg bg-[#0b0f1a] p-4 shadow-[0_0_30px_rgba(255,111,97,0.1)]">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-cyan-300 font-semibold">
+          <div className="flex items-center gap-2 text-[#06b6d4] font-semibold">
             <Sparkles size={18} /> AI Coach
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-200" aria-label="Close">

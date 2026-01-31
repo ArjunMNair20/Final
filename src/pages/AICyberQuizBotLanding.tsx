@@ -31,7 +31,7 @@ export default function AICyberQuizBotLanding() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-cyan-300">Cyber Quiz Lab</h1>
+      <h1 className="text-3xl font-bold text-purple-400">Cyber Quiz Lab</h1>
       <p className="text-slate-400">
         Choose your level and tackle a 25-question cybersecurity quiz covering real-world security topics.
       </p>

@@ -8,7 +8,7 @@ export function createStorageService(): IProgressStorage {
 
   if (supabaseUrl && supabaseKey && supabaseKey !== 'undefined') {
     try {
-      return new SupabaseStorageService(supabaseUrl, supabaseKey);
+      return new SupabaseStorageService();
     } catch (error) {
       console.warn('Failed to initialize Supabase storage, falling back to localStorage:', error);
     }

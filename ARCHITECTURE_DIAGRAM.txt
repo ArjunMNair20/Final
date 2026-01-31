@@ -1,0 +1,247 @@
+┌─────────────────────────────────────────────────────────────────────┐
+│              CyberSec Arena - AI Backend Architecture                │
+└─────────────────────────────────────────────────────────────────────┘
+
+USER'S COMPUTER:
+═══════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                    BROWSER (http://localhost:5173)                   │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │            React Component: ChatBot                          │  │
+│  │                                                              │  │
+│  │  ┌─────────────────────────────────────────────────────┐   │  │
+│  │  │  User Types: "How do I solve SQL injection?"      │   │  │
+│  │  │  Button Click → sendMessage(userInput)            │   │  │
+│  │  └─────────────────────────────────────────────────────┘   │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                              ↓                                       │
+│                        (HTTP POST)                                   │
+└─────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│              BACKEND SERVER (http://localhost:3001)                  │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  Express.js Application (Node.js)                           │  │
+│  │                                                              │  │
+│  │  POST /api/chat                                            │  │
+│  │  ├─ Receive: { message: "How do I solve..." }            │  │
+│  │  ├─ Add context: "You are a cybersecurity expert..."     │  │
+│  │  ├─ Build prompt:                                         │  │
+│  │  │   [System Context]                                     │  │
+│  │  │   [Cybersecurity Knowledge]                            │  │
+│  │  │   User: "How do I solve SQL injection?"              │  │
+│  │  │   Assistant:                                           │  │
+│  │  ├─ Call Ollama API                                       │  │
+│  │  └─ Return: { response: "SQL Injection is..." }         │  │
+│  │                                                              │  │
+│  │  GET /api/health → { status: 'ok' }                       │  │
+│  │  GET /api/ollama-status → Check if Ollama available      │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+                              ↓
+                        (HTTP Request)
+                              ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│           OLLAMA API (http://localhost:11434)                        │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  POST /api/generate                                         │  │
+│  │  ├─ Model: mistral (7B parameters)                         │  │
+│  │  ├─ Prompt: [Full cybersecurity context + user question]  │  │
+│  │  ├─ Temperature: 0.7 (balanced creative/accurate)         │  │
+│  │  ├─ Load model into GPU/CPU memory                        │  │
+│  │  ├─ Generate text token by token                          │  │
+│  │  └─ Return: Intelligent response                          │  │
+│  │                                                              │  │
+│  │  ┌────────────────────────────────────────────────────┐   │  │
+│  │  │ MODEL MEMORY:                                      │   │  │
+│  │  │ • Mistral 7B - ~4GB model file                    │   │  │
+│  │  │ • Loaded into system RAM or GPU VRAM             │   │  │
+│  │  │ • Inference: 1-3 tokens/sec (depends on hardware)│   │  │
+│  │  └────────────────────────────────────────────────────┘   │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+
+
+DATA FLOW EXAMPLE:
+═══════════════════════════════════════════════════════════════════════
+
+User Input:
+  "How do I solve SQL injection?"
+
+        ↓ (sent to backend)
+
+Backend Prompt Generation:
+  ---
+  You are an expert cybersecurity trainer...
+  [10 rules about how to teach CTF]
+  
+  User: "How do I solve SQL injection?"
+  Assistant:
+  ---
+
+        ↓ (sent to Ollama)
+
+Ollama/Mistral Processing:
+  - Tokenizes input into ~1500 tokens
+  - Processes through 7 billion parameters
+  - Generates response word by word
+  - Time: ~3 seconds first response, ~1-2 sec after
+
+Backend Response:
+  "SQL Injection is when an attacker..."
+  [Detailed technical explanation]
+  [Examples of vulnerable code]
+  [Prevention techniques]
+  [Tools to use]
+
+        ↓ (sent to frontend)
+
+User Sees:
+  [Intelligent, contextual response in chat]
+
+
+TERMINAL SETUP:
+═══════════════════════════════════════════════════════════════════════
+
+Terminal 1: Ollama Server
+  $ ollama serve
+  → Starts on http://localhost:11434
+  → Loads Mistral model
+  → Waits for requests
+
+Terminal 2: Backend Server
+  $ cd server && npm start
+  → Starts Express on http://localhost:3001
+  → Connects to Ollama at 11434
+  → Waits for chat requests
+
+Terminal 3: Frontend
+  $ npm run dev
+  → Vite dev server on http://localhost:5173
+  → React app loads
+  → ChatService connects to backend at 3001
+
+
+KEY FEATURES:
+═══════════════════════════════════════════════════════════════════════
+
+✅ Free & Open Source
+   - Ollama: Free
+   - Mistral: Free
+   - No API keys or subscriptions
+
+✅ Privacy
+   - Runs locally on your machine
+   - No data sent to cloud
+   - Complete control
+
+✅ Scalable Architecture
+   - Backend can handle multiple requests
+   - Can add database later
+   - Can deploy to cloud (AWS/Heroku)
+   - Can switch to different LLMs
+
+✅ Intelligent Responses
+   - Real AI understanding, not keyword matching
+   - Context-aware
+   - Conversational
+   - Can explain complex concepts
+
+✅ Easy to Maintain
+   - Simple Node.js/Express backend
+   - Standard REST API
+   - Easy to modify prompts
+   - Easy to add features
+
+
+MODEL SPECS (Mistral 7B):
+═══════════════════════════════════════════════════════════════════════
+
+Parameters:     7 billion
+Size:           4GB (quantized)
+Training:       Proprietary dataset
+Knowledge:      General knowledge + coding/security
+Speed:          1-3 tokens/second (CPU), faster with GPU
+Quality:        Excellent for general questions
+Cost:           Free (open source)
+
+
+RESPONSE TIMES:
+═══════════════════════════════════════════════════════════════════════
+
+First Response:     3-5 seconds
+  └─ Loads model into memory
+  └─ Processes request
+  └─ Generates response
+
+Subsequent:         1-3 seconds
+  └─ Model already loaded
+  └─ Just generate text
+
+With GPU:           50% faster
+CPU Only:           Acceptable but slower
+
+
+TROUBLESHOOTING CHECKLIST:
+═══════════════════════════════════════════════════════════════════════
+
+□ Is Ollama running?
+  → Check Terminal 1: Should see "Listening on 127.0.0.1:11434"
+
+□ Is backend running?
+  → Check Terminal 2: Should see "Chat server running on :3001"
+
+□ Is frontend running?
+  → Check Terminal 3: Should see "Local:  http://localhost:5173"
+
+□ Can frontend reach backend?
+  → Browser DevTools → Network → Should see POST to /api/chat
+
+□ Can backend reach Ollama?
+  → Backend logs should show successful Ollama responses
+
+□ Is model downloaded?
+  → Run: ollama list
+  → Should show "mistral" with size
+
+
+UPGRADING/CHANGING MODELS:
+═══════════════════════════════════════════════════════════════════════
+
+Download New Model:
+  $ ollama pull neural-chat
+  $ ollama pull dolphin-mixtral
+  $ ollama pull llama2
+
+Change in Backend:
+  Edit: server/chatserver.js line 39
+  Change: model: 'mistral'
+  To:     model: 'dolphin-mixtral'
+
+Restart Backend:
+  Stop Terminal 2 (Ctrl+C)
+  Run: npm start
+
+Done! Now using new model.
+
+
+FUTURE: CLOUD DEPLOYMENT:
+═══════════════════════════════════════════════════════════════════════
+
+Current Setup (Local):
+  Your Computer
+  ├── Ollama (Laptop GPU/CPU)
+  ├── Backend (Your machine)
+  └── Frontend (Browser)
+
+Future (Cloud):
+  User Browser
+  ├── Frontend (AWS S3 / CloudFront)
+  └── Backend API (AWS EC2 / Lambda)
+      └── Ollama (could move to: RunPod, Together.ai, etc)
+
+Already Built For Cloud! 🚀
+
+
+═══════════════════════════════════════════════════════════════════════

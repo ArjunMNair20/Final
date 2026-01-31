@@ -284,6 +284,177 @@ class ProfileService {
     return this.saveProfile({ avatar });
   }
 
+  // Upload a Blob/File to Supabase Storage (bucket: 'avatars') and save resulting public URL as avatar
+  async uploadAvatarBlob(blob: Blob | File, filename?: string): Promise<UserProfile> {
+    try {
+      const userId = await this.getCurrentUserId();
+      // If not authenticated, fallback to saving as data URL locally
+      if (!userId) {
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.onload = () => resolve(String(reader.result));
+          reader.readAsDataURL(blob as Blob);
+        });
+        // ensure local cache updated
+        try {
+          const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
+          const current = stored ? JSON.parse(stored) : defaultProfile;
+          const updatedCache = { ...current, avatar: dataUrl, updatedAt: new Date().toISOString() };
+          localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updatedCache));
+        } catch (e) {
+          console.warn('Failed to update local avatar cache:', e);
+        }
+        return this.saveProfile({ avatar: dataUrl });
+      }
+
+      const supabase = await getSupabase();
+      if (!supabase) throw new Error('Supabase not available');
+
+      const ext = (filename && filename.split('.').pop()) || (blob instanceof File ? (blob as File).name.split('.').pop() : 'png');
+      const normalizedExt = ext ? ext.replace(/[^a-zA-Z0-9]/g, '') : 'png';
+      const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${normalizedExt}`;
+
+      // upload to 'avatars' bucket
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(path, blob as File, { contentType: (blob as any).type || `image/${normalizedExt}` });
+
+      console.debug('uploadAvatarBlob: upload result', { uploadData, uploadError });
+
+      if (uploadError) {
+        // Save fallback data URL locally and attempt to save profile
+        console.error('Avatar upload failed:', uploadError);
+        try {
+          const reader = new FileReader();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            reader.onerror = () => reject(new Error('Failed to read file for fallback'));
+            reader.onload = () => resolve(String(reader.result));
+            reader.readAsDataURL(blob as Blob);
+          });
+          try {
+            const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
+            const current = stored ? JSON.parse(stored) : defaultProfile;
+            const updatedCache = { ...current, avatar: dataUrl, updatedAt: new Date().toISOString() };
+            localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updatedCache));
+          } catch (e) {
+            console.warn('Failed to update local avatar cache (fallback):', e);
+          }
+          return this.saveProfile({ avatar: dataUrl });
+        } catch (e) {
+          console.error('Failed to generate dataURL fallback after upload error:', e);
+          throw uploadError;
+        }
+      }
+
+      // Get public URL (storage API returns { data: { publicUrl } } in many setups)
+      const { data: publicData, error: publicError } = supabase.storage.from('avatars').getPublicUrl(path as string);
+      console.debug('uploadAvatarBlob: publicUrl result', { publicData, publicError });
+
+      if (publicError) {
+        console.error('Failed to get public URL for avatar:', publicError);
+        // fallback to data URL
+        try {
+          const reader = new FileReader();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            reader.onerror = () => reject(new Error('Failed to read file for fallback'));
+            reader.onload = () => resolve(String(reader.result));
+            reader.readAsDataURL(blob as Blob);
+          });
+          try {
+            const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
+            const current = stored ? JSON.parse(stored) : defaultProfile;
+            const updatedCache = { ...current, avatar: dataUrl, updatedAt: new Date().toISOString() };
+            localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updatedCache));
+          } catch (e) {
+            console.warn('Failed to update local avatar cache (publicUrl fallback):', e);
+          }
+          return this.saveProfile({ avatar: dataUrl });
+        } catch (e) {
+          console.error('Failed to create dataURL fallback after publicUrl error:', e);
+          throw publicError;
+        }
+      }
+
+      const publicUrl = (publicData as any)?.publicUrl || '';
+      if (!publicUrl) {
+        // similar fallback
+        try {
+          const reader = new FileReader();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            reader.onerror = () => reject(new Error('Failed to read file for fallback'));
+            reader.onload = () => resolve(String(reader.result));
+            reader.readAsDataURL(blob as Blob);
+          });
+          try {
+            const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
+            const current = stored ? JSON.parse(stored) : defaultProfile;
+            const updatedCache = { ...current, avatar: dataUrl, updatedAt: new Date().toISOString() };
+            localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updatedCache));
+          } catch (e) {
+            console.warn('Failed to update local avatar cache (no publicUrl):', e);
+          }
+          return this.saveProfile({ avatar: dataUrl });
+        } catch (e) {
+          console.error('No publicUrl and dataURL fallback failed:', e);
+          throw new Error('No public URL returned after avatar upload');
+        }
+      }
+
+      // Save profile avatar_url to DB (or cache)
+      return this.saveProfile({ avatar: publicUrl });
+    } catch (error) {
+      console.error('uploadAvatarBlob error:', error);
+      // Make sure we persist some fallback locally
+      try {
+        if (blob) {
+          const reader = new FileReader();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            reader.onerror = () => reject(new Error('Failed to read file for final fallback'));
+            reader.onload = () => resolve(String(reader.result));
+            reader.readAsDataURL(blob as Blob);
+          });
+          try {
+            const stored = localStorage.getItem(PROFILE_STORAGE_KEY);
+            const current = stored ? JSON.parse(stored) : defaultProfile;
+            const updatedCache = { ...current, avatar: dataUrl, updatedAt: new Date().toISOString() };
+            localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updatedCache));
+          } catch (e) {
+            console.warn('Failed to update local avatar cache (final fallback):', e);
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+      throw error;
+    }
+  }
+
+  // Fetch a public/local asset URL, convert to Blob and upload it as avatar
+  async uploadAvatarFromUrl(url: string): Promise<UserProfile> {
+    try {
+      // If the URL is a data URL, convert directly
+      if (url.startsWith('data:')) {
+        // Convert data URL to blob
+        const res = await fetch(url);
+        const blob = await res.blob();
+        return this.uploadAvatarBlob(blob);
+      }
+
+      // Fetch the image and upload
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to fetch avatar asset');
+      const blob = await res.blob();
+      // extract filename from url
+      const parts = url.split('/');
+      const filename = parts[parts.length - 1].split('?')[0] || undefined;
+      return this.uploadAvatarBlob(blob, filename);
+    } catch (error) {
+      console.error('uploadAvatarFromUrl failed:', error);
+      throw error;
+    }
+  }
+
   async updateBio(bio: string): Promise<UserProfile> {
     return this.saveProfile({ bio });
   }

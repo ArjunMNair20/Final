@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Difficulty, useProgress } from '../lib/progress';
+import { Difficulty, useProgress, useSyncProgressToLeaderboard } from '../lib/progress';
+import { useAuth } from '../contexts/AuthContext';
 import { QUIZ_QUESTIONS } from '../data/quiz';
 
 const QUIZ_LENGTH = 25;
@@ -24,6 +25,8 @@ function getMotivationMessage(scorePct: number): string {
 
 export default function AICyberQuizBot() {
   const { state, recordQuiz, setQuizDifficulty } = useProgress();
+  const syncToLeaderboard = useSyncProgressToLeaderboard();
+  const { user } = useAuth();
   const params = useParams<{ difficulty?: Difficulty }>();
   const navigate = useNavigate();
 
@@ -119,6 +122,11 @@ export default function AICyberQuizBot() {
       recordQuiz(isCorrect);
     });
 
+    // Sync aggregated quiz progress to leaderboard once after recording
+    try {
+      syncToLeaderboard(user || null);
+    } catch (_) {}
+
     const pct = Math.round((correctCount / questions.length) * 100);
     setFinalScore(pct);
     setHasSubmittedQuiz(true);
@@ -126,14 +134,14 @@ export default function AICyberQuizBot() {
 
   return (
     <div className="space-y-3">
-      <h1 className="text-xl font-bold text-cyan-300">Cyber Quiz Lab</h1>
+      <h1 className="text-3xl font-bold text-purple-400">Cyber Quiz Lab</h1>
       <p className="text-slate-400">
         You are taking the <span className="capitalize">{urlDifficulty}</span> level quiz. Answer {QUIZ_LENGTH} questions; each correct answer is marked, and when you finish all questions you can submit to see your total score.
       </p>
 
       <button
         onClick={() => navigate('/ai-quizbot')}
-        className="text-xs text-cyan-300 underline underline-offset-2 hover:text-cyan-200"
+        className="text-xs text-purple-400 underline underline-offset-2 hover:text-purple-300"
       >
         ← Back to level selection
       </button>

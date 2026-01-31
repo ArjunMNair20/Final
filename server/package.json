@@ -3,16 +3,16 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Backend server for AI chatbot with local LLM",
-  "main": "index.js",
+  "main": "chatserver.cjs",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js"
+    "start": "node chatserver.cjs",
+    "dev": "node --watch chatserver.cjs"
   },
   "dependencies": {
-    "@xenova/transformers": "^2.17.2",
+    "axios": "^1.6.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "node-fetch": "^2.7.0",
+    "dotenv": "^16.3.1",
     "compression": "^1.7.4",
     "helmet": "^7.0.0"
   }

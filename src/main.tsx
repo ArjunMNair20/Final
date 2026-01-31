@@ -8,8 +8,7 @@ import settingsService from './services/settingsService';
 
 const storage = createStorageService();
 
-// Initialize settings asynchronously after render to not block initial load
-// Use requestIdleCallback for better performance, fallback to setTimeout
+// Initialize settings asynchronously after render
 if ('requestIdleCallback' in window) {
   requestIdleCallback(() => {
     settingsService.initialize().catch(console.error);
@@ -17,7 +16,7 @@ if ('requestIdleCallback' in window) {
 } else {
   setTimeout(() => {
     settingsService.initialize().catch(console.error);
-  }, 0);
+  }, 500);
 }
 
 createRoot(document.getElementById('root')!).render(

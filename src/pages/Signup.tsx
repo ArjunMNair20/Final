@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Shield, Mail, Lock, User, UserPlus, AlertCircle, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { Shield, Mail, Lock, User, UserPlus, AlertCircle, Eye, EyeOff, CheckCircle, LogIn } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Signup() {
@@ -16,6 +16,7 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailExistsError, setEmailExistsError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -24,6 +25,7 @@ export default function Signup() {
       [e.target.name]: e.target.value,
     });
     setError(null);
+    setEmailExistsError(false);
   };
 
   const validateForm = (): boolean => {
@@ -63,6 +65,7 @@ export default function Signup() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setEmailExistsError(false);
 
     if (!validateForm()) {
       return;
@@ -91,7 +94,15 @@ export default function Signup() {
         navigate('/dashboard');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to create account. Please try again.');
+      const errorMessage = err.message || 'Failed to create account. Please try again.';
+      
+      // Check if it's an email already registered error
+      if (errorMessage.includes('already registered') || errorMessage.includes('Please sign in instead')) {
+        setEmailExistsError(true);
+        setError(errorMessage);
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -115,12 +126,12 @@ export default function Signup() {
         {/* Logo/Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-4">
-            <Shield className="text-cyan-400 drop-shadow-[0_0_8px_#08f7fe]" size={48} />
+            <Shield className="text-[#FF6F61] drop-shadow-[0_0_8px_#FF6F61]" size={48} />
             <div className="font-extrabold tracking-wide text-3xl">
-              <span className="text-cyan-400">CyberSec</span> <span className="text-fuchsia-400">Arena</span>
+              <span className="text-[#FF6F61]">CyberSec</span> <span className="text-[#6A0572]">Arena</span>
             </div>
           </div>
-          <h1 className="text-2xl font-bold text-cyan-300 mb-2">Create Account</h1>
+          <h1 className="text-2xl font-bold text-[#FF6F61] mb-2">Create Account</h1>
           <p className="text-slate-400">Join the cybersecurity learning community</p>
         </div>
 
@@ -129,9 +140,24 @@ export default function Signup() {
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Error Message */}
             {error && (
-              <div className="p-4 rounded-lg bg-red-500/10 border border-red-400/30 flex items-center gap-2 text-red-300">
-                <AlertCircle size={20} />
-                <span className="text-sm">{error}</span>
+              <div className={`p-4 rounded-lg border flex items-start gap-3 ${
+                emailExistsError 
+                  ? 'bg-blue-500/10 border-blue-400/30' 
+                  : 'bg-red-500/10 border-red-400/30'
+              }`}>
+                <AlertCircle size={20} className={emailExistsError ? 'text-blue-300 flex-shrink-0 mt-0.5' : 'text-red-300 flex-shrink-0 mt-0.5'} />
+                <div className={`text-sm flex-1 ${emailExistsError ? 'text-blue-300' : 'text-red-300'}`}>
+                  <p>{error}</p>
+                  {emailExistsError && (
+                    <Link 
+                      to="/login" 
+                      className="inline-flex items-center gap-1 mt-2 px-3 py-1.5 rounded bg-blue-500/20 border border-blue-400/30 text-blue-300 hover:bg-blue-500/30 transition-colors text-xs font-medium"
+                    >
+                      <LogIn size={14} />
+                      Go to Sign In
+                    </Link>
+                  )}
+                </div>
               </div>
             )}
 
@@ -149,7 +175,7 @@ export default function Signup() {
                   value={formData.name}
                   onChange={handleChange}
                   placeholder="John Doe"
-                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#FF6F61]/50 focus:ring-1 focus:ring-[#FF6F61]/30"
                 />
               </div>
             </div>
@@ -169,7 +195,7 @@ export default function Signup() {
                   onChange={handleChange}
                   required
                   placeholder="johndoe"
-                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#FF6F61]/50 focus:ring-1 focus:ring-[#FF6F61]/30"
                 />
               </div>
               <p className="text-xs text-slate-500 mt-1">3+ characters, letters, numbers, and underscores only</p>
@@ -190,7 +216,7 @@ export default function Signup() {
                   onChange={handleChange}
                   required
                   placeholder="you@example.com"
-                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#FF6F61]/50 focus:ring-1 focus:ring-[#FF6F61]/30"
                 />
               </div>
             </div>
@@ -210,7 +236,7 @@ export default function Signup() {
                   onChange={handleChange}
                   required
                   placeholder="Minimum 6 characters"
-                  className="w-full pl-10 pr-12 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
+                  className="w-full pl-10 pr-12 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#FF6F61]/50 focus:ring-1 focus:ring-[#FF6F61]/30"
                 />
                 <button
                   type="button"
@@ -260,7 +286,7 @@ export default function Signup() {
                   onChange={handleChange}
                   required
                   placeholder="Re-enter your password"
-                  className="w-full pl-10 pr-12 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30"
+                  className="w-full pl-10 pr-12 py-3 rounded-lg bg-black/40 border border-slate-800 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#FF6F61]/50 focus:ring-1 focus:ring-[#FF6F61]/30"
                 />
                 <button
                   type="button"
@@ -282,7 +308,7 @@ export default function Signup() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full px-4 py-3 rounded-lg bg-fuchsia-500/20 border border-fuchsia-400/30 text-fuchsia-300 hover:bg-fuchsia-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center gap-2 mt-6"
+              className="w-full px-4 py-3 rounded-lg bg-[#FF6F61]/20 border border-[#FF6F61]/30 text-[#FF6F61] hover:bg-[#FF6F61]/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center gap-2 mt-6"
             >
               {isLoading ? (
                 <>

@@ -2,10 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
 import helmet from 'helmet';
-import { pipeline } from '@xenova/transformers';
 import fetch from 'node-fetch'; // For web search / Node < 18
 import fs from 'fs';
 import path from 'path';
+import { extractSymptoms, analyzeThreatProfile } from './threatAnalysisEngine.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -113,8 +113,8 @@ async function initializeModel() {
   }
 }
 
-// Initialize model on server start
-initializeModel();
+// Initialize model on server start (disabled - ThreatRadar doesn't need AI models)
+// initializeModel();
 
 // Chat history storage (in-memory, can be replaced with database)
 const chatHistories = new Map();
@@ -1162,11 +1162,59 @@ app.post('/api/news/refresh', async (req, res) => {
   }
 });
 
+// ============= THREAT RADAR ENDPOINT =============
+app.post('/api/threat-radar', (req, res) => {
+  try {
+    const { symptoms } = req.body;
+    
+    if (!symptoms || typeof symptoms !== 'string' || symptoms.trim().length === 0) {
+      return res.status(400).json({ error: 'Please describe your system issues' });
+    }
+
+    // Extract symptoms from user input
+    let detectedSymptoms = [];
+    try {
+      detectedSymptoms = extractSymptoms(symptoms);
+    } catch (err) {
+      console.error('Error extracting symptoms:', err);
+      detectedSymptoms = [];
+    }
+
+    // Perform threat analysis (works with or without detected symptoms)
+    let analysis;
+    try {
+      analysis = analyzeThreatProfile(detectedSymptoms);
+    } catch (err) {
+      console.error('Error analyzing threat profile:', err);
+      // Return a safe fallback response
+      analysis = {
+        detected_symptoms: detectedSymptoms,
+        threats: [],
+        overall_risk_level: 'low',
+        risk_percentage: 0,
+        explanation: 'Analysis completed. No specific threats detected based on your input.',
+        mitigation_strategies: [],
+        timestamp: new Date().toISOString()
+      };
+    }
+
+    // Return analysis results
+    res.json(analysis);
+  } catch (error) {
+    console.error('Error in threat radar analysis:', error);
+    res.status(500).json({ 
+      error: 'Failed to analyze threats', 
+      message: error.message 
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 AI Chatbot server running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
   console.log(`📰 News API: http://localhost:${PORT}/api/news`);
   console.log(`🔍 News Search: http://localhost:${PORT}/api/news/search?q=security`);
   console.log(`🔄 News Refresh: http://localhost:${PORT}/api/news/refresh`);
+  console.log(`🎯 ThreatRadar: http://localhost:${PORT}/api/threat-radar`);
 });
 

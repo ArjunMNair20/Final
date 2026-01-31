@@ -6,6 +6,10 @@ export type CTFTask = {
   prompt: string;
   flag: string; // expected exact match, demo only
   hints: string[]; // progressive hints
+  seriesId?: string; // Optional: belongs to a series/campaign
+  stepNumber?: number; // Optional: step number in a series (1, 2, 3...)
+  requiresStep?: string; // Optional: requires this challenge ID to be solved first
+  image?: string; // Optional: data URL or path to an image to display with the challenge
 };
 
 export const CTF_TASKS: CTFTask[] = [
@@ -401,5 +405,288 @@ export const CTF_TASKS: CTFTask[] = [
       'Little-endian "7B 41 53 43" in big-endian is "43 53 41 7B".',
       'Convert hex to ASCII: 43=C, 53=S, 41=A, 7B={'
     ],
+  },
+
+  // ==================== HARD CHALLENGES ====================
+  {
+    id: 'crypto-rsa-small-e',
+    title: 'RSA Small Exponent (e=3)',
+    category: 'Cryptography',
+    difficulty: 'hard',
+    prompt: 'A small RSA setup used e=3 and the ciphertext appears to be a direct cube of the message (no padding). Recover the message and format it as CSA{message}. (This is a theoretical challenge — use integer cube root techniques.)',
+    flag: 'CSA{rsa_cube_root}',
+    hints: [
+      'Small public exponent attacks exist when messages are not padded correctly.',
+      'If m^e < n then c = m^e (mod n) is simply m^e — take the integer cube root.',
+      'Compute the integer cube root of the ciphertext to recover the original message string.',
+    ],
+  },
+  {
+    id: 'web-ssti',
+    title: 'Server-Side Template Injection',
+    category: 'Web',
+    difficulty: 'hard',
+    prompt: 'A template rendering endpoint reflects your input into a server-side template engine. Find a payload that executes code or reads a secret variable containing the flag.',
+    flag: 'CSA{ssti_executed}',
+    hints: [
+      'Identify the template engine in use (Jinja2, Twig, etc.) by testing expression syntax.',
+      'Try payloads that access attributes, call functions, or import modules to read server variables.',
+      'Carefully craft a payload that prints the secret variable containing the flag.',
+    ],
+  },
+  {
+    id: 'reverse-obfuscated',
+    title: 'Obfuscated Binary Reverse',
+    category: 'Reverse',
+    difficulty: 'hard',
+    prompt: 'A stripped, obfuscated binary performs a complex check and prints the flag when the correct input is provided. Reverse the binary to find the required input.',
+    flag: 'CSA{reverse_hard}',
+    hints: [
+      'Use static analysis tools (strings, objdump, radare2, Ghidra) to locate comparison logic.',
+      'Identify the checksum/transform routines and recreate them in your environment.',
+      'Feed the reversed input to the binary to obtain the flag.',
+    ],
+  },
+  {
+    id: 'binary-rop',
+    title: 'ROP Gadget Chain',
+    category: 'Binary',
+    difficulty: 'hard',
+    prompt: 'A vulnerable binary with NX enabled and ASLR disabled contains useful ROP gadgets. Build a ROP chain to call system("/bin/sh") or to reveal the flag stored in memory.',
+    flag: 'CSA{rop_master}',
+    hints: [
+      'Find gadgets using ROP gadget-finders (ROPgadget, rp++).',
+      'Leak an address if necessary, then compute offsets and build a payload to pivot to a chain that calls system().',
+      'Test locally with the same libc version to craft a working exploit.',
+    ],
+  },
+  // LSB Steganography challenge removed
+  {
+    id: 'crypto-padding-oracle',
+    title: 'Padding Oracle',
+    category: 'Cryptography',
+    difficulty: 'hard',
+    prompt: 'A web endpoint decrypts AES-CBC encrypted cookies and returns distinct error messages when padding is invalid. Exploit this oracle to decrypt a ciphertext and recover the flag.',
+    flag: 'CSA{padding_oracle}',
+    hints: [
+      'Padding oracle attacks manipulate ciphertext blocks to discover plaintext one byte at a time.',
+      'Automate the attack to iterate over possible byte values and observe server responses.',
+      'Reconstruct the plaintext and extract the flag string.',
+    ],
+  },
+  {
+    id: 'exploit-format-string',
+    title: 'Format String Vulnerability',
+    category: 'Web',
+    difficulty: 'hard',
+    prompt: 'An application logs user-supplied input using an unsafe printf-style function. Use format string exploitation to read a stack value that contains the flag.',
+    flag: 'CSA{fmt_vuln}',
+    hints: [
+      'Format string specifiers like %x and %s can read stack memory when incorrectly used.',
+      'Find the correct offset to the stack location containing the flag and use %s to print it.',
+      'Be cautious: some servers sanitize % characters — try combinations and offsets to locate the flag.',
+    ],
+  },
+  {
+    id: 'reverse-asm-crack',
+    title: 'Assembly Crackme',
+    category: 'Reverse',
+    difficulty: 'hard',
+    prompt: 'A small crackme binary asks for a serial number. Reverse the assembly to compute the serial that satisfies the check and reveals the flag.',
+    flag: 'CSA{asm_crack}',
+    hints: [
+      'Disassemble the binary and find the check routine that processes the input.',
+      'Trace the arithmetic/bitwise operations applied to each character to derive the inverse.',
+      'Compute the serial offline and provide it to the program to get the flag.',
+    ],
+  },
+
+  // ==================== SERIES/CAMPAIGNS ====================
+  // Series 1: "The Hidden Message" - Multi-step Web Security Campaign
+  {
+    id: 'series1-step1',
+    title: 'The Hidden Message - Part 1: Discovery',
+    category: 'Web',
+    difficulty: 'easy',
+    prompt: 'You found a suspicious website. Check the page source for hidden comments. What is the first clue?',
+    flag: 'clue1',
+    hints: [
+      'Right-click and view page source.',
+      'Look for HTML comments <!-- -->',
+      'The clue is hidden in a comment.'
+    ],
+    seriesId: 'hidden-message',
+    stepNumber: 1,
+  },
+  {
+    id: 'series1-step2',
+    title: 'The Hidden Message - Part 2: Decode',
+    category: 'Web',
+    difficulty: 'easy',
+    prompt: 'You found "Y2x1ZTI=" in the source. Decode it to find the next clue.',
+    flag: 'clue2',
+    hints: [
+      'This looks like base64 encoding.',
+      'Decode "Y2x1ZTI=" using base64.',
+      'The decoded value is your answer.'
+    ],
+    seriesId: 'hidden-message',
+    stepNumber: 2,
+    requiresStep: 'series1-step1',
+  },
+  {
+    id: 'series1-step3',
+    title: 'The Hidden Message - Part 3: Final Flag',
+    category: 'Web',
+    difficulty: 'medium',
+    prompt: 'The decoded message says "Check /robots.txt". Visit that path to find the final flag.',
+    flag: 'final_flag',
+    hints: [
+      'Navigate to /robots.txt on the website.',
+      'The flag is in the robots.txt file.',
+      'Read the file contents to find the flag.'
+    ],
+    seriesId: 'hidden-message',
+    stepNumber: 3,
+    requiresStep: 'series1-step2',
+  },
+
+  // Series 2: "Crypto Mystery" - Cryptography Campaign
+  {
+    id: 'series2-step1',
+    title: 'Crypto Mystery - Part 1: Caesar',
+    category: 'Cryptography',
+    difficulty: 'easy',
+    prompt: 'Decode this Caesar cipher (shift 3): "FDOO"',
+    flag: 'caesar_key',
+    hints: [
+      'Caesar cipher shifts letters. Shift backward by 3.',
+      'F→C, D→A, O→L, O→L',
+      'The decoded word is your answer.'
+    ],
+    seriesId: 'crypto-mystery',
+    stepNumber: 1,
+  },
+  {
+    id: 'series2-step2',
+    title: 'Crypto Mystery - Part 2: Base64',
+    category: 'Cryptography',
+    difficulty: 'easy',
+    prompt: 'Use the previous answer as a key. Decode this base64: "U0dWc2JHOGdWMjl5YkdRaA=="',
+    flag: 'base64_key',
+    hints: [
+      'Decode the base64 string first.',
+      'The previous answer might be needed for the next step.',
+      'The decoded value is your answer.'
+    ],
+    seriesId: 'crypto-mystery',
+    stepNumber: 2,
+    requiresStep: 'series2-step1',
+  },
+  {
+    id: 'series2-step3',
+    title: 'Crypto Mystery - Part 3: Final Decode',
+    category: 'Cryptography',
+    difficulty: 'medium',
+    prompt: 'Combine both previous answers and decode this hex: "66696e616c5f666c6167"',
+    flag: 'final_flag',
+    hints: [
+      'Convert hex to ASCII.',
+      'Each pair of hex digits is one character.',
+      'The decoded text is your final flag.'
+    ],
+    seriesId: 'crypto-mystery',
+    stepNumber: 3,
+    requiresStep: 'series2-step2',
+  },
+
+  // Series 3: "Forensic Investigation" - Forensics Campaign
+  {
+    id: 'series3-step1',
+    title: 'Forensic Investigation - Part 1: Metadata',
+    category: 'Forensics',
+    difficulty: 'easy',
+    prompt: 'An image file has metadata. The Artist field contains: "step1_complete". What is the next step?',
+    flag: 'check_exif',
+    hints: [
+      'The Artist field contains a clue.',
+      'The clue says "step1_complete".',
+      'Your answer is the next action: "check_exif"'
+    ],
+    seriesId: 'forensic-investigation',
+    stepNumber: 1,
+  },
+  {
+    id: 'series3-step2',
+    title: 'Forensic Investigation - Part 2: EXIF Data',
+    category: 'Forensics',
+    difficulty: 'medium',
+    prompt: 'The EXIF GPS coordinates are: 40.7128, -74.0060. Convert these to a city name (lowercase, no spaces).',
+    flag: 'newyork',
+    hints: [
+      'These are GPS coordinates.',
+      '40.7128°N, 74.0060°W is New York City.',
+      'Answer in lowercase, no spaces: "newyork"'
+    ],
+    seriesId: 'forensic-investigation',
+    stepNumber: 2,
+    requiresStep: 'series3-step1',
+  },
+  {
+    id: 'series3-step3',
+    title: 'Forensic Investigation - Part 3: Hidden Data',
+    category: 'Forensics',
+    difficulty: 'medium',
+    prompt: 'The LSB (Least Significant Bit) of the image contains: "01000110 01001001 01001110 01000001 01001100". Decode it.',
+    flag: 'FINAL',
+    hints: [
+      'Each 8-bit binary number is one ASCII character.',
+      '01000110 = 70 = F, 01001001 = 73 = I, 01001110 = 78 = N, etc.',
+      'Convert all binary to get the final flag.'
+    ],
+    seriesId: 'forensic-investigation',
+    stepNumber: 3,
+    requiresStep: 'series3-step2',
+  },
+];
+
+// Series metadata for display
+export type CTFSeries = {
+  id: string;
+  title: string;
+  description: string;
+  category: 'Web' | 'Cryptography' | 'Forensics' | 'Reverse' | 'Binary';
+  difficulty: 'easy' | 'medium' | 'hard';
+  totalSteps: number;
+  challengeIds: string[];
+};
+
+export const CTF_SERIES: CTFSeries[] = [
+  {
+    id: 'hidden-message',
+    title: 'The Hidden Message',
+    description: 'A multi-step web security investigation. Follow the clues through page sources, encoding, and hidden files. Story: You\'re investigating a suspicious website that might contain hidden information. Each step reveals a new clue leading to the final secret.',
+    category: 'Web',
+    difficulty: 'medium',
+    totalSteps: 3,
+    challengeIds: ['series1-step1', 'series1-step2', 'series1-step3'],
+  },
+  {
+    id: 'crypto-mystery',
+    title: 'Crypto Mystery',
+    description: 'Unlock the secrets of cryptography. Decode Caesar ciphers, base64, and hex to solve the mystery. Story: An encrypted message was intercepted. Decode each layer to uncover the hidden truth behind the cryptographic puzzle.',
+    category: 'Cryptography',
+    difficulty: 'medium',
+    totalSteps: 3,
+    challengeIds: ['series2-step1', 'series2-step2', 'series2-step3'],
+  },
+  {
+    id: 'forensic-investigation',
+    title: 'Forensic Investigation',
+    description: 'Investigate digital evidence. Analyze metadata, GPS coordinates, and hidden data in images. Story: A digital forensics case requires you to extract hidden information from an image file. Follow the trail of metadata and steganography.',
+    category: 'Forensics',
+    difficulty: 'medium',
+    totalSteps: 3,
+    challengeIds: ['series3-step1', 'series3-step2', 'series3-step3'],
   },
 ];

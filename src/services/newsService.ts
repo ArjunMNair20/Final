@@ -19,7 +19,7 @@ class NewsService {
   private isFetching = false;
 
   // Helper function with timeout
-  private async fetchWithTimeout(url: string, options: RequestInit = {}, timeout: number = 8000): Promise<Response> {
+  private async fetchWithTimeout(url: string, options: RequestInit = {}, timeout: number = 5000): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     
@@ -44,10 +44,11 @@ class NewsService {
       const redditUrl = `https://www.reddit.com/r/${subreddit}/new.json?limit=${limit}&raw_json=1`;
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(redditUrl)}`;
       
-      const response = await this.fetchWithTimeout(proxyUrl, {}, 10000);
+      const response = await this.fetchWithTimeout(proxyUrl, {}, 6000);
       
       if (response.ok) {
         const proxyData = await response.json();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let data: any;
         
         try {
@@ -60,6 +61,7 @@ class NewsService {
         
         const posts = data.data?.children || [];
         
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         posts.forEach((post: any) => {
           const postData = post.data;
           if (postData && postData.title) {
@@ -80,8 +82,10 @@ class NewsService {
       } else {
         console.warn(`Reddit ${subreddit} response not OK:`, response.status);
       }
-    } catch (error: any) {
-      console.log(`Reddit ${subreddit} fetch failed:`, error?.message || error);
+    } catch (error: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = error as any;
+      console.log(`Reddit ${subreddit} fetch failed:`, err?.message || error);
     }
     return articles;
   }
@@ -112,6 +116,7 @@ class NewsService {
           )
         );
         
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         stories.forEach((story: any) => {
           if (story && story.title && story.url) {
             const titleLower = story.title.toLowerCase();
@@ -141,8 +146,10 @@ class NewsService {
         });
         console.log(`✓ Fetched ${articles.length} security articles from HackerNews`);
       }
-    } catch (error: any) {
-      console.log('HackerNews fetch failed:', error?.message || error);
+    } catch (error: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = error as any;
+      console.log('HackerNews fetch failed:', err?.message || error);
     }
     return articles;
   }
@@ -160,6 +167,7 @@ class NewsService {
       if (response.ok) {
         const cveData = await response.json();
         if (Array.isArray(cveData)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           cveData.forEach((cve: any) => {
             if (cve && cve.id && cve.summary) {
               articles.push({
@@ -178,8 +186,10 @@ class NewsService {
           console.log(`✓ Fetched ${articles.length} CVEs`);
         }
       }
-    } catch (error: any) {
-      console.log('CVE fetch failed:', error?.message || error);
+    } catch (error: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = error as any;
+      console.log('CVE fetch failed:', err?.message || error);
     }
     return articles;
   }
@@ -193,12 +203,13 @@ class NewsService {
       const response = await this.fetchWithTimeout(
         'https://api.rss2json.com/v1/api.json?rss_url=https://feeds.feedburner.com/TheHackersNews',
         {},
-        8000
+        6000
       );
       
       if (response.ok) {
         const data = await response.json();
         if (data.items && Array.isArray(data.items)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           data.items.slice(0, 15).forEach((item: any, index: number) => {
             articles.push({
               id: `newsapi-${index}-${Date.now()}`,

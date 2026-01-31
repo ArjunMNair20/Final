@@ -1,0 +1,80 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="fingerprintGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a78bfa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8B5CF6;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="circuitGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B5CF6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background circle with glow -->
+  <circle cx="100" cy="100" r="98" fill="none" stroke="#a78bfa" stroke-width="1" opacity="0.3"/>
+  <circle cx="100" cy="100" r="92" fill="none" stroke="#8B5CF6" stroke-width="1" opacity="0.2"/>
+  
+  <!-- Circuit board corner elements -->
+  <g stroke="#8B5CF6" stroke-width="1.5" fill="none" opacity="0.6">
+    <!-- Top-left corner circuit -->
+    <path d="M 20 20 L 45 20 L 45 45"/>
+    <circle cx="20" cy="20" r="2" fill="#8B5CF6"/>
+    <circle cx="45" cy="20" r="1.5" fill="#8B5CF6"/>
+    <circle cx="45" cy="45" r="1.5" fill="#8B5CF6"/>
+    
+    <!-- Top-right corner circuit -->
+    <path d="M 180 20 L 155 20 L 155 45"/>
+    <circle cx="180" cy="20" r="2" fill="#8B5CF6"/>
+    <circle cx="155" cy="20" r="1.5" fill="#8B5CF6"/>
+    <circle cx="155" cy="45" r="1.5" fill="#8B5CF6"/>
+    
+    <!-- Bottom-left corner circuit -->
+    <path d="M 20 180 L 45 180 L 45 155"/>
+    <circle cx="20" cy="180" r="2" fill="#8B5CF6"/>
+    <circle cx="45" cy="180" r="1.5" fill="#8B5CF6"/>
+    <circle cx="45" cy="155" r="1.5" fill="#8B5CF6"/>
+    
+    <!-- Bottom-right corner circuit -->
+    <path d="M 180 180 L 155 180 L 155 155"/>
+    <circle cx="180" cy="180" r="2" fill="#8B5CF6"/>
+    <circle cx="155" cy="180" r="1.5" fill="#8B5CF6"/>
+    <circle cx="155" cy="155" r="1.5" fill="#8B5CF6"/>
+  </g>
+  
+  <!-- Fingerprint - Central oval -->
+  <ellipse cx="100" cy="100" rx="45" ry="50" fill="none" stroke="url(#fingerprintGrad)" stroke-width="2.5" filter="url(#glow)"/>
+  
+  <!-- Fingerprint ridges - Concentric curves -->
+  <g stroke="url(#fingerprintGrad)" fill="none" stroke-width="2" opacity="0.85" filter="url(#glow)">
+    <ellipse cx="100" cy="100" rx="38" ry="42"/>
+    <ellipse cx="100" cy="100" rx="31" ry="34"/>
+    <ellipse cx="100" cy="100" rx="24" ry="26"/>
+    <ellipse cx="100" cy="100" rx="17" ry="18"/>
+  </g>
+  
+  <!-- Fingerprint whorl detail - Center spiral -->
+  <g stroke="#a78bfa" fill="none" stroke-width="1.5" opacity="0.7" filter="url(#glow)">
+    <path d="M 100 82 Q 108 82 108 90 Q 108 100 100 100 Q 92 100 92 90 Q 92 82 100 82"/>
+    <path d="M 100 88 Q 105 88 105 95 Q 105 100 100 100 Q 95 100 95 95 Q 95 88 100 88"/>
+  </g>
+  
+  <!-- Digital pulse lines connecting fingerprint to circuits -->
+  <g stroke="#8B5CF6" stroke-width="1.2" fill="none" opacity="0.5">
+    <path d="M 60 70 L 45 45"/>
+    <path d="M 140 70 L 155 45"/>
+    <path d="M 60 130 L 45 155"/>
+    <path d="M 140 130 L 155 155"/>
+  </g>
+  
+  <!-- Central digital nodes -->
+  <circle cx="100" cy="100" r="4" fill="#a78bfa" filter="url(#glow)"/>
+  <circle cx="100" cy="100" r="6" fill="none" stroke="#a78bfa" stroke-width="1" opacity="0.5"/>
+  <circle cx="100" cy="100" r="8" fill="none" stroke="#8B5CF6" stroke-width="0.8" opacity="0.3"/>
+</svg>

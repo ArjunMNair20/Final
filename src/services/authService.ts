@@ -18,6 +18,30 @@ class AuthService {
     return rawEmail.trim().toLowerCase();
   }
 
+  async checkEmailExists(email: string): Promise<boolean> {
+    try {
+      const s = await this.ensureSupabase();
+      const normalizedEmail = this.normalizeEmail(email);
+
+      // Check in user_profiles table
+      const { data: existingProfile, error } = await s
+        .from('user_profiles')
+        .select('id')
+        .eq('email', normalizedEmail)
+        .single();
+
+      return !!existingProfile;
+    } catch (error: any) {
+      // If error is "no rows", email doesn't exist
+      if (error?.code === 'PGRST116') {
+        return false;
+      }
+      // For other errors, we can't determine, so return false to let signup attempt
+      console.error('Error checking email existence:', error);
+      return false;
+    }
+  }
+
   private validateSignupBasics(credentials: SignupCredentials) {
     const { email, password, username } = credentials;
 
@@ -51,6 +75,12 @@ class AuthService {
     const email = this.normalizeEmail(credentials.email);
     const username = credentials.username.trim();
     const name = credentials.name;
+
+    // Check if email already exists
+    const emailExists = await this.checkEmailExists(email);
+    if (emailExists) {
+      throw new Error('Email already registered. Please sign in instead.');
+    }
 
     // Check if username already exists in user_profiles
     const { data: existingProfile } = await s
@@ -116,6 +146,22 @@ class AuthService {
 
     if (progressError) {
       console.error('Failed to create user progress:', progressError);
+    }
+
+    // Create initial leaderboard entry
+    const { error: leaderboardError } = await s.from('leaderboard_scores').insert({
+      user_id: authData.user.id,
+      username: username.toLowerCase(),
+      total_score: 0,
+      ctf_score: 0,
+      phish_score: 0,
+      code_score: 0,
+      quiz_score: 0,
+      firewall_score: 0,
+    });
+
+    if (leaderboardError) {
+      console.error('Failed to create leaderboard entry:', leaderboardError);
     }
 
     const user: User = {
